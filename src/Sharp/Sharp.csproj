@@ -17,4 +17,10 @@
     <ProjectReference Include="../Sharp.Shell/Sharp.Shell.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The session loop is exercised in-process by the test project, so a coverage collector can
+         see it; the black-box tests still drive the built binary through a real process. -->
+    <InternalsVisibleTo Include="Sharp.Shell.Tests" />
+  </ItemGroup>
+
 </Project>

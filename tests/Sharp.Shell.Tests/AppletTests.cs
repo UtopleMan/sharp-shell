@@ -116,6 +116,10 @@ public class AppletTests
     [InlineData("printf 'a\\0101b\\n'", "a\b1b\n")]
     [InlineData("printf 'a\\x41b\\n'", "aAb\n")]
     [InlineData("printf 'a\\x4bb\\n'", "aKb\n")]
+    [InlineData("printf 'a\\Eb\\n'", "a\u001bb\n")]
+    [InlineData("printf 'a\\\"b\\n'", "a\"b\n")]
+    [InlineData("printf 'a\\?b\\n'", "a?b\n")]
+    [InlineData("printf \"a\\'b\\n\"", "a'b\n")]
     [InlineData("printf 'a\\qb\\n'", "a\\qb\n")]
     [InlineData("printf 'a\\8b\\n'", "a\\8b\n")]
     public void PrintfReadsTheEscapesBashReads(string commandLine, string expected)

@@ -14,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sharp.Shell/Sharp.Shell.csproj" />
+    <ProjectReference Include="../../src/Sharp/Sharp.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The vendored oils spec corpus and our deviations list. Test-only: nothing under src/

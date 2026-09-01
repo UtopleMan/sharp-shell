@@ -25,6 +25,41 @@ public class AwkAppletTests
         Assert.Equal(expected, Out(commandLine));
     }
 
+    // awk's escape table, which three callers share: string literals, regex literals, and -v.
+    // An escape awk does not define loses its backslash, so `\q` is a `q`.
+    [Theory]
+    [InlineData(@"awk 'BEGIN {printf ""a\tb""}'", "a\tb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\nb""}'", "a\nb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\rb""}'", "a\rb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\bb""}'", "a\bb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\fb""}'", "a\fb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\vb""}'", "a\vb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\ab""}'", "a\ab")]
+    [InlineData(@"awk 'BEGIN {printf ""a\\b""}'", @"a\b")]
+    [InlineData(@"awk 'BEGIN {printf ""a\""b""}'", "a\"b")]
+    [InlineData(@"awk 'BEGIN {printf ""a\/b""}'", "a/b")]
+    [InlineData(@"awk 'BEGIN {printf ""a\qb""}'", "aqb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\101b""}'", "aAb")]
+    [InlineData(@"awk 'BEGIN {printf ""a\0b""}'", "a\0b")]
+    public void EscapesDecodeTheWayAwkDecodesThem(string commandLine, string expected)
+    {
+        Assert.Equal(expected, Out(commandLine));
+    }
+
+    // A trailing `e` is only an exponent when digits follow it; otherwise the number ends and the
+    // `e` starts a name.
+    [Theory]
+    [InlineData("awk 'BEGIN {print 1e3}'", "1000\n")]
+    [InlineData("awk 'BEGIN {print 1E3}'", "1000\n")]
+    [InlineData("awk 'BEGIN {print 1e+3}'", "1000\n")]
+    [InlineData("awk 'BEGIN {print 1e-3}'", "0.001\n")]
+    [InlineData("awk 'BEGIN {e = 5; print 1 e}'", "15\n")]
+    [InlineData("awk 'BEGIN {ex = 5; print 1ex}'", "15\n")]
+    public void ExponentsAreReadOnlyWhenDigitsFollow(string commandLine, string expected)
+    {
+        Assert.Equal(expected, Out(commandLine));
+    }
+
     // `--` reaches the program as an operand only when it comes before it; after the program every
     // word is input, which is what stops `awk '{print}' -F` from losing its file.
     [Fact]

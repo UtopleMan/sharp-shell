@@ -13,21 +13,26 @@ internal sealed class Session
 {
     private readonly ShellExecutor executor = new(AppletRegistry.CreateDefault(), new NotSupportedCommandExecutor());
     private readonly ShellState state;
-    private readonly bool explains;
-    private readonly bool strict;
+    private readonly SessionSettings settings;
+    private readonly TextWriter output;
+    private readonly TextWriter error;
 
     // ShellState starts at its root, which for an unconfined session is "/" — not where the user
     // ran the shell. A shell that opens somewhere other than your current directory is useless, so
     // the session moves there first.
-    public Session(string rootPath, string startDirectory, bool explains, bool strict)
+    //
+    // The two writers are arguments rather than Console: the binary passes Console.Out and
+    // Console.Error, and a test passes a StringWriter and reads what the session said.
+    public Session(SessionSettings settings, TextWriter output, TextWriter error)
     {
-        this.explains = explains;
-        this.strict = strict;
-        state = new ShellState(rootPath);
+        this.settings = settings;
+        this.output = output;
+        this.error = error;
+        state = new ShellState(settings.Root);
 
-        if (!state.TryChangeDirectory(startDirectory, out string error))
+        if (!state.TryChangeDirectory(settings.StartDirectory, out string failure))
         {
-            Console.Error.WriteLine($"sharp: {error}");
+            error.WriteLine($"sharp: {failure}");
         }
     }
 
@@ -49,8 +54,8 @@ internal sealed class Session
 
         if (run.Result is { } result)
         {
-            Console.Out.Write(result.Stdout);
-            Console.Error.Write(result.Stderr);
+            output.Write(result.Stdout);
+            error.Write(result.Stderr);
             state.LastExitCode = result.ExitCode;
 
             return result.ExitCode;
@@ -63,9 +68,9 @@ internal sealed class Session
         // would be answered by bash and score as a pass, measuring nothing. Strict mode is also
         // exactly the configuration the sandboxed guest runs in, where no process can be started
         // at all.
-        if (strict)
+        if (settings.Strict)
         {
-            Console.Error.WriteLine($"sharp: {run.Classification.Reason ?? "not an owned command"}");
+            error.WriteLine($"sharp: {run.Classification.Reason ?? "not an owned command"}");
             state.LastExitCode = 127;
             return state.LastExitCode;
         }
@@ -76,7 +81,7 @@ internal sealed class Session
 
     private void Explain(Classification classification)
     {
-        if (!explains)
+        if (!settings.Explains)
         {
             return;
         }
@@ -88,6 +93,6 @@ internal sealed class Session
         string mutates = classification.Mutates ? " mutates" : string.Empty;
         string reason = classification.Reason is null ? string.Empty : $" — {classification.Reason}";
 
-        Console.Error.WriteLine($"[{tier}{programs}{mutates}]{reason}");
+        error.WriteLine($"[{tier}{programs}{mutates}]{reason}");
     }
 }

@@ -301,6 +301,49 @@ public class SedAppletTests
     }
 
     [Theory]
+    [InlineData("sed --line-length=wide 'l'", "sed: invalid line length: wide")]
+    [InlineData("sed", "sed: usage: sed [options] script [file...]")]
+    [InlineData("sed 's/a'", "sed: -e expression #1: ")]
+    public void MalformedInvocationsAreReportedWithExitTwo(string commandLine, string expected)
+    {
+        ShellResult result = Run(commandLine);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.StartsWith(expected, result.Stderr, StringComparison.Ordinal);
+    }
+
+    // The executor refuses these at CheckFlags and never calls Run, so the applet's own refusal
+    // arms are reachable only by invoking it directly — which a host embedding Sharp.Shell does.
+    [Theory]
+    [InlineData("sed: unsupported: ", "--debug", "s/a/b/")]
+    [InlineData("sed: unsupported construct: ", "s/a/b/e")]
+    public void RunRefusesWhatCheckFlagsWouldHaveCaught(string expected, params string[] arguments)
+    {
+        using ShellHarness harness = new();
+        System.Text.StringBuilder errors = new();
+
+        AppletRun run = new SedApplet().Run(new AppletContext(
+            arguments,
+            TextStream.FromText("a\n"),
+            new ShellState(harness.Root),
+            text => errors.Append(text),
+            CancellationToken.None));
+
+        Assert.Equal(2, run.ExitCode);
+        Assert.StartsWith(expected, errors.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AScriptFileThatIsNotThereIsReported()
+    {
+        using ShellHarness harness = new();
+        ShellResult result = harness.Run("sed -f absent.sed in.txt");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.StartsWith("sed: ", result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("e ls")]
     [InlineData("s/a/b/e")]
     [InlineData(@"s/a\|ab/x/")]
