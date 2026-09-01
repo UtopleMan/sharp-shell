@@ -1,0 +1,70 @@
+# Realistic awk one-liners of the kind an agent writes, each with the input fixture it runs against.
+#
+# Format: <fixture><TAB><argument>... — the arguments are handed to awk verbatim, followed by the
+# fixture's file name. Fixture contents live in AwkAgentCorpusTests.
+#
+# Every line must classify as Owned and must produce exactly what /usr/bin/awk and gawk --posix
+# produce. A line that cannot be owned is deleted with its reason recorded in the phase summary,
+# never left failing.
+
+# --- picking columns ---
+table	{print $2}
+table	{print $1, $3}
+table	{print $NF}
+table	{print NF}
+passwd	-F:	{print $1}
+passwd	-F:	{print $1, $NF}
+csv	-F,	{print $2}
+csv	BEGIN{FS=","} {print NF}
+
+# --- filtering ---
+lines	NR>1 && NR<=4
+lines	NR==1
+lines	/three/
+lines	!/three/
+lines	length($0) > 4
+table	$3 > 100 {print $1}
+table	$1 ~ /^a/
+lines	/two/,/four/
+
+# --- counting and totalling ---
+table	{s+=$3} END {print s}
+table	{s+=$3} END {printf "%.2f\n", s}
+lines	END{print NR}
+lines	{n++} END {print n+0}
+table	$3 > 100 {c++} END{print c+0}
+table	{t[$1]+=$3} END {n=0; for (k in t) n+=t[k]; print n}
+dupes	!seen[$0]++
+dupes	{c[$0]++} END {n=0; for (k in c) if (c[k] > 1) n++; print n}
+
+# --- reshaping ---
+table	{printf "%-20s %s\n", $1, $2}
+table	{printf "%s\t%s\n", $2, $1}
+table	{print $2 "=" $3}
+table	BEGIN{OFS=","} {$1=$1; print}
+lines	{print NR ": " $0}
+lines	{print toupper($0)}
+ragged	{gsub(/[ \t]+$/, ""); print "[" $0 "]"}
+ragged	{sub(/^[ \t]+/, ""); print "[" $0 "]"}
+ragged	{$1=$1; print}
+lines	{print substr($0, 1, 3)}
+passwd	-F:	{n=split($0, p, ":"); print n, p[1]}
+
+# --- reporting with file context ---
+lines	/three/ {print FILENAME":"FNR": "$0}
+lines	{print FILENAME, FNR, NR}
+lines	FNR==1 {print "first line of " FILENAME}
+
+# --- fields and records ---
+table	{for (i = NF; i > 0; i--) printf "%s%s", $i, (i > 1 ? OFS : ORS)}
+table	{if (NF > 2) print $3}
+paragraphs	BEGIN{RS=""} {print NR, NF}
+lines	{a[NR]=$0} END {for (i=NR; i>=1; i--) print a[i]}
+
+# --- functions ---
+table	function max(a, b) {return a > b ? a : b} {print max($2, $3)}
+table	function pad(s, n) {return substr(s "          ", 1, n)} {print "[" pad($1, 8) "]"}
+
+# --- writing ---
+lines	{print > "selected.txt"}
+table	$3 > 100 {print $1 >> "big.txt"}

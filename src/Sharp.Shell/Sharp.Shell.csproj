@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The bash language core: lexer, parser, word expansion, executor, and the owned command set,
+    with every command a C# function rather than a process. Referenced by an embedding host AND
+    compiled into that host's WASI-P2 guest, which builds from a minimal Docker context where no
+    Directory.Build.props is present — so every property is declared here in full rather than
+    inherited. Zero package references and no System.Diagnostics.Process, no threads, and no
+    reflection: the guest is single-threaded, trimmed, and NativeAOT-compiled.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The tests drive the owned-tier executor directly; every other assembly must go through
+         ShellExecutor.Run so classification cannot be bypassed. -->
+    <InternalsVisibleTo Include="Sharp.Shell.Tests" />
+  </ItemGroup>
+
+</Project>

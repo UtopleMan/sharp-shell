@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sharp.Shell/Sharp.Shell.csproj" />
+    <Project Path="src/Sharp/Sharp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sharp.Shell.Tests/Sharp.Shell.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    sharp: Sharp.Shell as a real, runnable shell. Commands the shell owns are C# function calls
+    in this process; anything else is handed to the platform shell untouched. Useful for trying the
+    language, and for seeing exactly which commands the sandboxed tool tier would run itself.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sharp</AssemblyName>
+    <RootNamespace>Sharp</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Sharp.Shell/Sharp.Shell.csproj" />
+  </ItemGroup>
+
+</Project>
