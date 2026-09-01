@@ -45,7 +45,7 @@ public sealed class PrintfApplet : IApplet
             return AppletRun.Failed(2);
         }
 
-        string format = Escapes.Interpret(context.Arguments[0]);
+        string format = Escapes.InterpretPrintfFormat(context.Arguments[0]);
         IReadOnlyList<string> operands = [.. context.Arguments.Skip(1)];
 
         return new AppletRun { Output = TextStream.FromText(Format(format, operands)) };

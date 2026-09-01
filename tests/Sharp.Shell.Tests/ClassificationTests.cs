@@ -140,10 +140,16 @@ public class ClassificationTests
     [InlineData("ls -lt")]
     [InlineData("grep -A6 needle f")]
     [InlineData("cat -v f")]
-    [InlineData("grep -oh needle f")]
+    [InlineData("grep -qh needle f")]
     public void BundlingNeverTurnsAnUnimplementedFlagIntoASupportedOne(string commandLine)
     {
         Assert.Equal(ExecutionTier.Native, Classify(commandLine).Tier);
+    }
+
+    [Fact]
+    public void BundlingSupportedFlagsStaysOwned()
+    {
+        Assert.Equal(ExecutionTier.Owned, Classify("grep -oh needle f").Tier);
     }
 
     // find spells its options as single-dash words. Splitting -name into -n -a -m -e would turn a

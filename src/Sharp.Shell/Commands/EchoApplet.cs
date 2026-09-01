@@ -27,7 +27,7 @@ public sealed class EchoApplet : IApplet
         }
 
         string text = string.Join(' ', context.Arguments.Skip(first));
-        StringBuilder output = new(interpretEscapes ? Escapes.Interpret(text) : text);
+        StringBuilder output = new(interpretEscapes ? Escapes.InterpretEchoText(text) : text);
         if (!suppressNewline)
         {
             output.Append('\n');

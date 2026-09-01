@@ -21,7 +21,7 @@ public sealed class GrepApplet : IApplet
 
     public bool Mutates => false;
 
-    public IReadOnlyList<string> BundleableFlags => ["-i", "-v", "-n", "-r", "-R", "-l", "-c", "-E", "-F", "-e", "-h", "-w"];
+    public IReadOnlyList<string> BundleableFlags => ["-i", "-v", "-n", "-r", "-R", "-l", "-c", "-E", "-F", "-e", "-h", "-w", "-o"];
 
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
@@ -42,6 +42,13 @@ public sealed class GrepApplet : IApplet
 
         GrepOptions options = GrepOptions.From(arguments);
 
+        // GNU prints nothing for -o -v and BSD prints the whole non-matching line. Rather than pick
+        // a dialect for a combination nobody means, hand the line back.
+        if (options.MatchesOnly && options.Inverts)
+        {
+            return FlagSupport.Reject("-o with -v");
+        }
+
         if (options.Pattern is null || options.FixedStrings)
         {
             return FlagSupport.Supported;
@@ -55,7 +62,7 @@ public sealed class GrepApplet : IApplet
     }
 
     private static bool IsSupportedFlag(string argument) =>
-        argument is "-i" or "-v" or "-n" or "-r" or "-R" or "-l" or "-c" or "-E" or "-F" or "-e" or "-h" or "-w"
+        argument is "-i" or "-v" or "-n" or "-r" or "-R" or "-l" or "-c" or "-E" or "-F" or "-e" or "-h" or "-w" or "-o"
         or "--include" or "--exclude"
         || argument.StartsWith("--include=", StringComparison.Ordinal)
         || argument.StartsWith("--exclude=", StringComparison.Ordinal);
@@ -84,6 +91,7 @@ public sealed class GrepApplet : IApplet
     private static IEnumerable<string> Search(GrepOptions options, AppletContext context, AppletRun run)
     {
         Func<string, bool> matches = MatcherFor(options);
+        Regex? extents = options.MatchesOnly ? RegexFor(options) : null;
         IReadOnlyList<GrepSource> sources = SourcesFor(options, context, run);
         bool showsName = (sources.Count > 1 || options.Recurses) && !options.HidesNames;
 
@@ -113,7 +121,10 @@ public sealed class GrepApplet : IApplet
                     break;
                 }
 
-                yield return Format(line, source.Name, lineNumber, showsName, options.NumbersLines);
+                foreach (string reported in Reported(line, extents))
+                {
+                    yield return Format(reported, source.Name, lineNumber, showsName, options.NumbersLines);
+                }
             }
 
             foreach (string summary in Summaries(options, source, count, showsName))
@@ -147,6 +158,25 @@ public sealed class GrepApplet : IApplet
         return $"{prefix}{numbered}{line}\n";
     }
 
+    // Without -o the whole line is the answer. With it, each non-empty match is — an empty match
+    // still makes the line count, which is why `grep -o 'x*'` on `abc` prints nothing and exits 0.
+    private static IEnumerable<string> Reported(string line, Regex? extents)
+    {
+        if (extents is null)
+        {
+            yield return line;
+            yield break;
+        }
+
+        foreach (Match match in extents.Matches(line))
+        {
+            if (match.Length > 0)
+            {
+                yield return match.Value;
+            }
+        }
+    }
+
     private static Func<string, bool> MatcherFor(GrepOptions options)
     {
         if (options.FixedStrings && !options.MatchesWholeWords)
@@ -158,6 +188,11 @@ public sealed class GrepApplet : IApplet
             return line => line.Contains(options.Pattern!, comparison);
         }
 
+        return RegexFor(options).IsMatch;
+    }
+
+    private static Regex RegexFor(GrepOptions options)
+    {
         RegexOptions regexOptions = RegexOptions.CultureInvariant;
 
         if (options.IgnoresCase)
@@ -169,15 +204,15 @@ public sealed class GrepApplet : IApplet
             ? Regex.Escape(options.Pattern!)
             : Translate(options).Pattern!;
 
-        return new Regex(WordBounded(pattern, options.MatchesWholeWords), regexOptions, MatchTimeout).IsMatch;
+        return new Regex(WordBounded(pattern, options.MatchesWholeWords), regexOptions, MatchTimeout);
     }
 
     // grep reports whole lines, never the matched span, so an alternation whose branches match
-    // different lengths cannot change its answer.
+    // different lengths cannot change its answer — until -o, where the span *is* the answer.
     private static RegexTranslation Translate(GrepOptions options) => PosixRegexTranslator.Translate(
         options.Pattern!,
         options.ExtendedRegex ? RegexDialect.ExtendedPosix : RegexDialect.BasicPosix,
-        usesMatchExtent: false);
+        usesMatchExtent: options.MatchesOnly);
 
     // -w means the match must be a whole word, which grep defines with the same ASCII word
     // characters the translator uses for \w and \b.
@@ -264,7 +299,8 @@ public sealed class GrepApplet : IApplet
         bool FixedStrings,
         bool ExtendedRegex,
         bool MatchesWholeWords,
-        bool HidesNames)
+        bool HidesNames,
+        bool MatchesOnly)
     {
         // --include/--exclude filter which files a recursive search reads, matched on the file name
         // the way GNU grep matches them.
@@ -296,6 +332,7 @@ public sealed class GrepApplet : IApplet
             bool extendedRegex = false;
             bool matchesWholeWords = false;
             bool hidesNames = false;
+            bool matchesOnly = false;
 
             for (int index = 0; index < arguments.Count; index++)
             {
@@ -335,12 +372,13 @@ public sealed class GrepApplet : IApplet
                 extendedRegex |= argument == "-E";
                 matchesWholeWords |= argument == "-w";
                 hidesNames |= argument == "-h";
+                matchesOnly |= argument == "-o";
             }
 
             return new GrepOptions(
                 pattern, files, includeGlob, excludeGlob, ignoresCase, inverts, numbersLines,
                 recurses, namesOnly, countsOnly, fixedStrings, extendedRegex, matchesWholeWords,
-                hidesNames);
+                hidesNames, matchesOnly);
         }
 
         // --include=GLOB and --include GLOB are both spelled in the wild.

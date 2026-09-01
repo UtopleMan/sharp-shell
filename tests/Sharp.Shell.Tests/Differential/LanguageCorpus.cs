@@ -40,6 +40,21 @@ public static class LanguageCorpus
         "printf 'cat cathode\\n' | grep -c '\\<cat\\>'",
         "printf 'cat cathode\\n' | grep -c '\\bcat\\b'",
         "printf 'concatenate\\ncat dog\\n' | grep -c 'cat\\B'",
+        "printf 'abcabc\\n' | grep -o abc",
+        "printf 'a\\nbab\\n' | grep -o -n a",
+        "printf 'cat cats\\n' | grep -o -w cat",
+
+        // The two builtins read octal differently and keep the backslash on an escape neither
+        // defines, so both spellings are pinned against the real thing.
+        "printf 'a\\vb\\n'",
+        "printf 'a\\fb\\n'",
+        "printf 'a\\101b\\n'",
+        "printf 'a\\010b\\n'",
+        "printf 'a\\x41b\\n'",
+        "printf 'a\\qb\\n'",
+        "echo -e 'a\\0101b'",
+        "echo -e 'a\\101b'",
+        "echo -e 'a\\x41b'",
         "x=1; echo $x",
         "x=1; echo ${x}2",
         "echo ${missing:-default}",

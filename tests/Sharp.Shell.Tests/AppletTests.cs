@@ -102,6 +102,46 @@ public class AppletTests
         Assert.Equal("a-1%\n", harness.Run("printf '%s-%d%%\\n' a 1").Stdout);
     }
 
+    // Every row checked against `bash --norc --noprofile -c '<line>' | od -c` first: the two builtins
+    // read octal differently, and an escape neither defines keeps its backslash.
+    [Theory]
+    [InlineData("printf 'a\\vb\\n'", "a\vb\n")]
+    [InlineData("printf 'a\\fb\\n'", "a\fb\n")]
+    [InlineData("printf 'a\\eb\\n'", "a\u001bb\n")]
+    [InlineData("printf 'a\\101b\\n'", "aAb\n")]
+    [InlineData("printf 'a\\7b\\n'", "a\ab\n")]
+    [InlineData("printf 'a\\0b\\n'", "a\0b\n")]
+    [InlineData("printf 'a\\01b\\n'", "a\u0001b\n")]
+    [InlineData("printf 'a\\010b\\n'", "a\bb\n")]
+    [InlineData("printf 'a\\0101b\\n'", "a\b1b\n")]
+    [InlineData("printf 'a\\x41b\\n'", "aAb\n")]
+    [InlineData("printf 'a\\x4bb\\n'", "aKb\n")]
+    [InlineData("printf 'a\\qb\\n'", "a\\qb\n")]
+    [InlineData("printf 'a\\8b\\n'", "a\\8b\n")]
+    public void PrintfReadsTheEscapesBashReads(string commandLine, string expected)
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal(expected, harness.Run(commandLine).Stdout);
+    }
+
+    [Theory]
+    [InlineData("echo -e 'a\\vb'", "a\vb\n")]
+    [InlineData("echo -e 'a\\fb'", "a\fb\n")]
+    [InlineData("echo -e 'a\\x41b'", "aAb\n")]
+    [InlineData("echo -e 'a\\0101b'", "aAb\n")]
+    [InlineData("echo -e 'a\\010b'", "a\bb\n")]
+    [InlineData("echo -e 'a\\0b'", "a\0b\n")]
+    [InlineData("echo -e 'a\\101b'", "a\\101b\n")]
+    [InlineData("echo -e 'a\\qb'", "a\\qb\n")]
+    [InlineData("echo 'a\\vb'", "a\\vb\n")]
+    public void EchoReadsOctalTheWayBashsEchoDoes(string commandLine, string expected)
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal(expected, harness.Run(commandLine).Stdout);
+    }
+
     [Fact]
     public void PrintfRejectsAConversionItDoesNotImplement()
     {

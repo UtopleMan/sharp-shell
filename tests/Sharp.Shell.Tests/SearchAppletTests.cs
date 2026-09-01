@@ -109,6 +109,59 @@ public class SearchAppletTests
         Assert.False(grep.CheckFlags(["-P", "x"]).IsSupported);
     }
 
+    [Theory]
+    [InlineData("printf 'abcabc\\n' | grep -o abc", "abc\nabc\n")]
+    [InlineData("printf 'a\\nbab\\n' | grep -o -n a", "1:a\n2:a\n")]
+    [InlineData("printf 'aAa\\n' | grep -o -i a", "a\nA\na\n")]
+    [InlineData("printf 'cat cats\\n' | grep -o -w cat", "cat\n")]
+    [InlineData("printf 'aa\\n' | grep -o -c a", "1\n")]
+    public void GrepReportsOnlyTheMatchedSpan(string commandLine, string expected)
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal(expected, harness.Run(commandLine).Stdout);
+    }
+
+    // An empty match still makes the line count, so the status is zero even though nothing prints.
+    [Fact]
+    public void GrepPrintsNothingForAnEmptyMatchButStillSucceeds()
+    {
+        using ShellHarness harness = new();
+        ShellResult result = harness.Run("printf 'abc\\n' | grep -o 'x*'");
+
+        Assert.Equal(string.Empty, result.Stdout);
+        Assert.Equal(0, result.ExitCode);
+    }
+
+    [Fact]
+    public void GrepNamesTheFileWhenSeveralAreSearchedWithMatchesOnly()
+    {
+        using ShellHarness harness = new();
+        harness.Write("f1.txt", "a\n");
+        harness.Write("f2.txt", "a\n");
+
+        Assert.Equal("f1.txt:a\nf2.txt:a\n", harness.Run("grep -o a f1.txt f2.txt").Stdout);
+    }
+
+    // -o makes the match extent the answer, so the alternation rule the translator relaxes for a
+    // whole-line grep applies again.
+    [Fact]
+    public void GrepWithMatchesOnlyRefusesAnAmbiguousAlternation()
+    {
+        IApplet grep = AppletRegistry.CreateDefault().Applets.Single(applet => applet.Name == "grep");
+
+        Assert.True(grep.CheckFlags(["-E", "foo|foobar"]).IsSupported);
+        Assert.False(grep.CheckFlags(["-o", "-E", "foo|foobar"]).IsSupported);
+    }
+
+    [Fact]
+    public void GrepRefusesMatchesOnlyTogetherWithInversion()
+    {
+        IApplet grep = AppletRegistry.CreateDefault().Applets.Single(applet => applet.Name == "grep");
+
+        Assert.False(grep.CheckFlags(["-o", "-v", "a"]).IsSupported);
+    }
+
     [Fact]
     public void FindListsEverythingBelowItsRoot()
     {

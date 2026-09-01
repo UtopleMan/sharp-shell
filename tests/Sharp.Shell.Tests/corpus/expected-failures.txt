@@ -4,8 +4,9 @@
 # now passes — delete its line when that happens. Regenerate with
 # DUETUI_CORPUS_BASELINE=1 dotnet test tests/Duetui.Shell.Tests/Duetui.Shell.Tests.csproj
 #
-# 2297 of 2787 bash-comparable cases fail at this baseline (2300 before sed was owned, 2298
-# before wc named the files it counted; unchanged by awk — the corpus barely uses it).
+# 2294 of 2787 bash-comparable cases fail at this baseline (2300 before sed was owned, 2298
+# before wc named the files it counted, 2297 before printf and echo -e read the escapes bash
+# reads; unchanged by awk — the corpus barely uses it).
 
 alias.test.sh:0  stdout 'status=0\nx\n' != 'status=127\n'
 alias.test.sh:1  stdout 'hello world\nhi\nexpected failure\n' != 'should not run this\nhi\nexpected failure\n'
@@ -720,12 +721,9 @@ builtin-dirs.test.sh:7  stdout '--\n 0  /tmp\n 1  /\n--\n 0  /dev\n 1  /tmp\n 2 
 builtin-dirs.test.sh:8  stdout '--\n/tmp\n/\n--\n/dev\n/tmp\n/\n' != '--\n--\n'
 builtin-dirs.test.sh:9  stdout '~/oil_test /\n/tmp/oil_test /\n' != ''
 builtin-echo.test.sh:1  stdout '\\n\\n\\\n\\n## BUG dash/mksh/zsh STDOUT:\n\\n\\n\\n\\n' != '\\n\\n\\\n\\n'
-builtin-echo.test.sh:10  stdout '\n
 \t\n' != '\n
 \tv\n'
 builtin-echo.test.sh:12  stdout 'xy ab' != 'xy abcde zzz\n'
-builtin-echo.test.sh:13  stdout 'abcdef\n' != 'abcdx65f\n'
-builtin-echo.test.sh:14  stdout 'abcd$e\n' != 'abcd 44e\n'
 builtin-echo.test.sh:15  stdout 'abcdef\n' != 'abcdu0065f\n'
 builtin-echo.test.sh:16  stdout 'abcdef\n' != 'abcdU00000065f\n'
 builtin-echo.test.sh:17  stdout ' ff 37\n' != ''
@@ -739,8 +737,6 @@ builtin-echo.test.sh:23  stdout ' a b c d 006\n' != ''
 builtin-echo.test.sh:24  stdout ' 006\n' != ''
 builtin-echo.test.sh:25  stdout ' \0 \ 1 \ 8\n' != ''
 builtin-echo.test.sh:26  threw UnauthorizedAccessException: Access to the path '/var/folders/mq/h7lh3gkj73764plgv8vbl_1c0000gn/T/duetui-corpusDdV
-builtin-echo.test.sh:8  stdout 'foo\\nbar\n' != 'foo\nbar\n'
-builtin-echo.test.sh:9  stdout '\d\n' != 'def\n'
 builtin-eval-source.test.sh:0  stdout '3\n' != '\n'
 builtin-eval-source.test.sh:1  stdout 'hi\n' != ''
 builtin-eval-source.test.sh:10  stdout 'status=2\n' != 'status=127\n'
@@ -904,7 +900,6 @@ builtin-printf.test.sh:31  stdout '[3.140000e+00]\n[3.140000E+00]\n[3.140000]\n[
 builtin-printf.test.sh:32  stdout '['a\tb']\n['\xe2\x98\xa0']\n['$e']\n['\x1f7']\n' != '['a\tb']\n['xE2x98xA0']\n[' 44e']\n[' 377']\n'
 builtin-printf.test.sh:33  stdout '['\x1f7']\n['\xff']\n' != '[' 377']\n['377']\n'
 builtin-printf.test.sh:34  stdout '['\xe2\x98\xa0']\n['\xd9\x9f']\n' != '['u2620']\n['U0000065f']\n'
-builtin-printf.test.sh:35  stdout '[\Z]\n' != '[Z]\n'
 builtin-printf.test.sh:37  stdout 'a\nA\nAZ\n' != ''
 builtin-printf.test.sh:38  stdout '[μμ]\n ce\n' != ''
 builtin-printf.test.sh:39  stdout 'status=1\nstatus=1\n' != 'status=127\nstatus=127\n'
