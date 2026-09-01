@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text;
 
@@ -360,29 +361,32 @@ internal sealed class AwkLexer(string source)
         ("|", AwkTokenKind.Pipe),
     ];
 
-    private static AwkTokenKind? KeywordKind(string word) => word switch
-    {
-        "BEGIN" => AwkTokenKind.Begin,
-        "END" => AwkTokenKind.End,
-        "function" => AwkTokenKind.Function,
-        "if" => AwkTokenKind.If,
-        "else" => AwkTokenKind.Else,
-        "while" => AwkTokenKind.While,
-        "for" => AwkTokenKind.For,
-        "do" => AwkTokenKind.Do,
-        "break" => AwkTokenKind.Break,
-        "continue" => AwkTokenKind.Continue,
-        "next" => AwkTokenKind.Next,
-        "nextfile" => AwkTokenKind.NextFile,
-        "exit" => AwkTokenKind.Exit,
-        "return" => AwkTokenKind.Return,
-        "delete" => AwkTokenKind.Delete,
-        "in" => AwkTokenKind.In,
-        "print" => AwkTokenKind.Print,
-        "printf" => AwkTokenKind.Printf,
-        "getline" => AwkTokenKind.Getline,
-        _ => null,
-    };
+    private static readonly FrozenDictionary<string, AwkTokenKind> Keywords =
+        new Dictionary<string, AwkTokenKind>(StringComparer.Ordinal)
+        {
+            ["BEGIN"] = AwkTokenKind.Begin,
+            ["END"] = AwkTokenKind.End,
+            ["function"] = AwkTokenKind.Function,
+            ["if"] = AwkTokenKind.If,
+            ["else"] = AwkTokenKind.Else,
+            ["while"] = AwkTokenKind.While,
+            ["for"] = AwkTokenKind.For,
+            ["do"] = AwkTokenKind.Do,
+            ["break"] = AwkTokenKind.Break,
+            ["continue"] = AwkTokenKind.Continue,
+            ["next"] = AwkTokenKind.Next,
+            ["nextfile"] = AwkTokenKind.NextFile,
+            ["exit"] = AwkTokenKind.Exit,
+            ["return"] = AwkTokenKind.Return,
+            ["delete"] = AwkTokenKind.Delete,
+            ["in"] = AwkTokenKind.In,
+            ["print"] = AwkTokenKind.Print,
+            ["printf"] = AwkTokenKind.Printf,
+            ["getline"] = AwkTokenKind.Getline,
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static AwkTokenKind? KeywordKind(string word) =>
+        Keywords.TryGetValue(word, out AwkTokenKind kind) ? kind : null;
 
     private bool ExpectsRegex() => tokens.Count == 0 || !EndsAValue(tokens[^1].Kind);
 

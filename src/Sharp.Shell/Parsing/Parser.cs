@@ -298,28 +298,15 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
     {
         redirection = null;
         Token operatorToken = Current;
-        string text = Current.Text;
-        string digits = new([.. text.TakeWhile(char.IsAsciiDigit)]);
-        string symbol = text[digits.Length..];
+        (string digits, string symbol) = SplitFileDescriptor(Current.Text);
 
-        RedirectionKind? kind = symbol switch
-        {
-            "<" => RedirectionKind.Input,
-            ">" => RedirectionKind.Output,
-            ">>" => RedirectionKind.Append,
-            "<<" or "<<-" => RedirectionKind.HereDocument,
-            ">&" => RedirectionKind.DuplicateOutput,
-            "<&" => RedirectionKind.DuplicateInput,
-            "&>" => RedirectionKind.OutputAndError,
-            _ => null,
-        };
-
-        if (kind is null)
+        if (RedirectionKindOf(symbol) is not { } kind)
         {
             return false;
         }
 
         index++;
+
         if (Current.Kind != TokenKind.Word)
         {
             Reject($"'{symbol}' needs a target");
@@ -329,14 +316,34 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
         Word target = Current.Word!;
         index++;
         redirection = new Redirection(
-            kind.Value,
-            digits.Length > 0 ? int.Parse(digits) : DefaultFileDescriptor(kind.Value),
+            kind,
+            digits.Length > 0 ? int.Parse(digits) : DefaultFileDescriptor(kind),
             target,
             operatorToken.HereDocumentBody,
             symbol == "<<-",
             target.Parts.All(part => part.Kind is not (WordPartKind.SingleQuoted or WordPartKind.DoubleQuoted)));
         return true;
     }
+
+    // `2>` and `2>&1` name their descriptor in front of the operator; `>` and `&>` leave it to the
+    // default for their kind.
+    private static (string Digits, string Symbol) SplitFileDescriptor(string text)
+    {
+        string digits = new([.. text.TakeWhile(char.IsAsciiDigit)]);
+        return (digits, text[digits.Length..]);
+    }
+
+    private static RedirectionKind? RedirectionKindOf(string symbol) => symbol switch
+    {
+        "<" => RedirectionKind.Input,
+        ">" => RedirectionKind.Output,
+        ">>" => RedirectionKind.Append,
+        "<<" or "<<-" => RedirectionKind.HereDocument,
+        ">&" => RedirectionKind.DuplicateOutput,
+        "<&" => RedirectionKind.DuplicateInput,
+        "&>" => RedirectionKind.OutputAndError,
+        _ => null,
+    };
 
     private static int DefaultFileDescriptor(RedirectionKind kind) =>
         kind is RedirectionKind.Input or RedirectionKind.HereDocument or RedirectionKind.DuplicateInput ? 0 : 1;

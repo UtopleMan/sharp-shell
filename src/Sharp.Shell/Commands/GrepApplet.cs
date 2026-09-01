@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.RegularExpressions;
 using Sharp.Shell.Execution;
 using Sharp.Shell.Text;
@@ -21,7 +22,7 @@ public sealed class GrepApplet : IApplet
 
     public bool Mutates => false;
 
-    public IReadOnlyList<string> BundleableFlags => ["-i", "-v", "-n", "-r", "-R", "-l", "-c", "-E", "-F", "-e", "-h", "-w", "-o"];
+    public IReadOnlyList<string> BundleableFlags => ShortFlags;
 
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
@@ -61,9 +62,15 @@ public sealed class GrepApplet : IApplet
             : FlagSupport.Reject($"the pattern `{options.Pattern}': {translation.RefusalReason}");
     }
 
+    // The single-letter flags are also the bundleable ones: `-ri` means the same as `-r -i`.
+    private static readonly string[] ShortFlags =
+        ["-i", "-v", "-n", "-r", "-R", "-l", "-c", "-E", "-F", "-e", "-h", "-w", "-o"];
+
+    private static readonly FrozenSet<string> SupportedFlags =
+        FrozenSet.ToFrozenSet([.. ShortFlags, "--include", "--exclude"], StringComparer.Ordinal);
+
     private static bool IsSupportedFlag(string argument) =>
-        argument is "-i" or "-v" or "-n" or "-r" or "-R" or "-l" or "-c" or "-E" or "-F" or "-e" or "-h" or "-w" or "-o"
-        or "--include" or "--exclude"
+        SupportedFlags.Contains(argument)
         || argument.StartsWith("--include=", StringComparison.Ordinal)
         || argument.StartsWith("--exclude=", StringComparison.Ordinal);
 
