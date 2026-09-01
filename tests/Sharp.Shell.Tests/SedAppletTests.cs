@@ -196,6 +196,73 @@ public class SedAppletTests
         Assert.Equal("a\na\n", Out("printf 'a\\n' | sed 'w /dev/stdout'"));
     }
 
+    // `R` takes one line per cycle and keeps its position between them, which is the whole
+    // difference from `r` and the only thing that exercises the per-path line reader.
+    [Fact]
+    public void ReadLineInterleavesTheNamedFile()
+    {
+        using ShellHarness harness = new();
+        harness.Write("lines.txt", "x\ny\n");
+
+        Assert.Equal("a\nx\nb\ny\nc\n", harness.Run("printf 'a\\nb\\nc\\n' | sed 'R lines.txt'").Stdout);
+    }
+
+    [Fact]
+    public void ReadLineStopsWhenTheNamedFileRunsOut()
+    {
+        using ShellHarness harness = new();
+        harness.Write("lines.txt", "x\n");
+
+        Assert.Equal("a\nx\nb\nc\n", harness.Run("printf 'a\\nb\\nc\\n' | sed 'R lines.txt'").Stdout);
+    }
+
+    [Fact]
+    public void ReadLineFromAMissingFileAddsNothing()
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal("a\n", harness.Run("printf 'a\\n' | sed 'R absent.txt'").Stdout);
+    }
+
+    [Fact]
+    public void ReadLineOutsideTheWorkspaceIsRefused()
+    {
+        using ShellHarness harness = new();
+        ShellResult result = harness.Run("printf 'a\\n' | sed 'R ../outside.txt'");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Contains("outside the workspace", result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("printf 'a\\tb\\n' | sed -n 'l'", "a\\tb$\n")]
+    [InlineData("printf 'a\\\\b\\n' | sed -n 'l'", "a\\\\b$\n")]
+    [InlineData("printf 'a\\rb\\n' | sed -n 'l'", "a\\rb$\n")]
+    [InlineData("printf 'a\\ab\\n' | sed -n 'l'", "a\\ab$\n")]
+    [InlineData("printf 'a\\bb\\n' | sed -n 'l'", "a\\bb$\n")]
+    [InlineData("printf 'abcdefgh\\n' | sed -n 'l 4'", "abc\\\ndef\\\ngh$\n")]
+    [InlineData("printf 'abcdefgh\\n' | sed -n 'l 0'", "abcdefgh$\n")]
+    [InlineData("printf 'a\\nb\\n' | sed -n 'N;l'", "a\\nb$\n")]
+    public void ListRendersUnambiguously(string commandLine, string expected)
+    {
+        Assert.Equal(expected, Out(commandLine));
+    }
+
+    // Seeded as bytes rather than through printf: these are exactly the escapes printf does not
+    // itself interpret, and the subject here is sed's rendering, not printf's reading.
+    [Theory]
+    [InlineData("a\vb\n", "a\\vb$\n")]
+    [InlineData("a\fb\n", "a\\fb$\n")]
+    [InlineData("a\u0001b\n", "a\\001b$\n")]
+    [InlineData("a\u007fb\n", "a\\177b$\n")]
+    public void ListRendersControlCharactersAsOctal(string content, string expected)
+    {
+        using ShellHarness harness = new();
+        harness.Write("control.txt", content);
+
+        Assert.Equal(expected, harness.Run("sed -n 'l' control.txt").Stdout);
+    }
+
     [Fact]
     public void APipelineStopsPullingWhenTheConsumerStops()
     {
@@ -240,6 +307,18 @@ public class SedAppletTests
     public void ScriptConstructsTheSandboxCannotHonourAreRefused(string script)
     {
         Assert.False(new SedApplet().CheckFlags([script]).IsSupported);
+    }
+
+    // --posix turns the GNU regex extensions off, so a script that uses one is handed back whole
+    // rather than run against a dialect the flag says is not in play.
+    [Theory]
+    [InlineData(@"s/\w/x/")]
+    [InlineData(@"s/\s/x/")]
+    [InlineData(@"s/\<a\>/x/")]
+    public void PosixModeRefusesTheGnuRegexEscapes(string script)
+    {
+        Assert.False(new SedApplet().CheckFlags(["--posix", script]).IsSupported);
+        Assert.True(new SedApplet().CheckFlags([script]).IsSupported);
     }
 
     [Theory]

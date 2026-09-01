@@ -171,6 +171,27 @@ public class SedScriptParserTests
             part => Assert.Equal(SedReplacementKind.Literal, part.Kind));
     }
 
+    // GNU keeps the letter for an escape it has no meaning for, so `\q` is a `q` and not a refusal.
+    [Theory]
+    [InlineData(@"s/a/\n/", "\n")]
+    [InlineData(@"s/a/\t/", "\t")]
+    [InlineData(@"s/a/\r/", "\r")]
+    [InlineData(@"s/a/\f/", "\f")]
+    [InlineData(@"s/a/\v/", "\v")]
+    [InlineData(@"s/a/\a/", "\a")]
+    [InlineData(@"s/a/\\/", "\\")]
+    [InlineData(@"s/a/\//", "/")]
+    [InlineData(@"s/a/\q/", "q")]
+    [InlineData(@"s|a|\||", "|")]
+    public void ReplacementEscapesBecomeTheirCharacter(string script, string expected)
+    {
+        SedSubstitute substitute = Assert.IsType<SedSubstitute>(Assert.Single(Parse(script).Commands));
+        SedReplacementPart part = Assert.Single(substitute.Replacement);
+
+        Assert.Equal(SedReplacementKind.Literal, part.Kind);
+        Assert.Equal(expected, part.Text);
+    }
+
     [Fact]
     public void TransliterationUnescapes()
     {

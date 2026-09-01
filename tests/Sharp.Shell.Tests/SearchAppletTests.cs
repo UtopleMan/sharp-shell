@@ -1,4 +1,6 @@
+using Sharp.Shell;
 using Sharp.Shell.Commands;
+using Sharp.Shell.Execution;
 using Sharp.Shell.Tests.Support;
 using Xunit;
 
@@ -167,12 +169,142 @@ public class SearchAppletTests
     }
 
     [Fact]
+    public void FindFiltersByNameIgnoringCase()
+    {
+        using ShellHarness harness = new();
+        harness.Write("Report.TXT", "");
+        harness.Write("notes.md", "");
+
+        Assert.Equal("./Report.TXT\n", Listed(harness, "find . -iname '*.txt'"));
+    }
+
+    [Fact]
+    public void FindFiltersByPath()
+    {
+        using ShellHarness harness = new();
+        harness.Write("sub/b.txt", "");
+        harness.Write("top.txt", "");
+
+        Assert.Equal("./sub/b.txt\n", Listed(harness, "find . -path '*/sub/*'"));
+    }
+
+    [Fact]
+    public void FindFiltersByFileType()
+    {
+        using ShellHarness harness = new();
+        harness.Write("sub/b.txt", "");
+
+        string output = Listed(harness, "find . -type f");
+
+        Assert.Equal("./sub/b.txt\n", output);
+    }
+
+    [Fact]
+    public void FindHonoursMinDepth()
+    {
+        using ShellHarness harness = new();
+        harness.Write("sub/deep/c.txt", "");
+
+        string output = Listed(harness, "find . -mindepth 2");
+
+        Assert.Contains("./sub/deep", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n./sub\n", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("find . -not -name '*.txt'")]
+    [InlineData("find . ! -name '*.txt'")]
+    public void FindNegatesThePredicate(string commandLine)
+    {
+        using ShellHarness harness = new();
+        harness.Write("a.txt", "");
+        harness.Write("b.md", "");
+
+        string output = Listed(harness, commandLine);
+
+        Assert.Contains("./b.md", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("a.txt", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindAcceptsAnExplicitPrint()
+    {
+        using ShellHarness harness = new();
+        harness.Write("a.txt", "");
+
+        Assert.Equal(Listed(harness, "find . -name '*.txt'"), Listed(harness, "find . -name '*.txt' -print"));
+    }
+
+    [Fact]
+    public void FindWalksEveryRootItIsGiven()
+    {
+        using ShellHarness harness = new();
+        harness.Write("one/a.txt", "");
+        harness.Write("two/b.txt", "");
+
+        string output = Listed(harness, "find one two");
+
+        Assert.Contains("one/a.txt", output, StringComparison.Ordinal);
+        Assert.Contains("two/b.txt", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindReportsAMissingRootAndKeepsGoing()
+    {
+        using ShellHarness harness = new();
+        harness.Write("here/a.txt", "");
+
+        ShellResult result = harness.Run("find absent here");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("find: absent: No such file or directory", result.Stderr, StringComparison.Ordinal);
+        Assert.Contains("here/a.txt", result.Stdout.Replace(Path.DirectorySeparatorChar, '/'), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindRefusesARootOutsideTheWorkspace()
+    {
+        using ShellHarness harness = new();
+        ShellResult result = harness.Run("find ..");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("find: ..: outside the workspace", result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, result.Stdout);
+    }
+
+    [Fact]
+    public void FindNamesASingleFileRootWithoutDescending()
+    {
+        using ShellHarness harness = new();
+        harness.Write("a.txt", "");
+
+        Assert.Equal("a.txt\n", Listed(harness, "find a.txt"));
+    }
+
+    [Fact]
     public void FindRejectsAnActionItDoesNotImplement()
     {
         IApplet find = AppletRegistry.CreateDefault().Applets.Single(applet => applet.Name == "find");
 
         Assert.False(find.CheckFlags([".", "-delete"]).IsSupported);
     }
+
+    // A predicate we do not implement must send the whole line native rather than run a walk that
+    // silently ignores it — a half-honoured `find` prints the wrong files.
+    [Theory]
+    [InlineData("find . -newer stamp.txt")]
+    [InlineData("find . -size +1k")]
+    [InlineData("find . -exec rm {} ;")]
+    public void FindEscalatesAPredicateItDoesNotImplement(string commandLine)
+    {
+        using ShellHarness harness = new();
+        harness.Write("stamp.txt", "");
+
+        Assert.Equal(ExecutionTier.Native, harness.Classified(commandLine).Classification.Tier);
+    }
+
+    private static string Listed(ShellHarness harness, string commandLine) =>
+        harness.Run(commandLine).Stdout.Replace(Path.DirectorySeparatorChar, '/');
 
     // grep speaks POSIX now (plans/sed-support.md), not .NET: parentheses and braces are literals
     // until -E, and the GNU escapes repeat.

@@ -60,29 +60,34 @@ Reference points:
 
 ## Phase 0: Land the pending fixes
 
-Status: Not started
+Status: Complete
 
 The oracle deadlock fix in the working tree is a prerequisite: without it any non-terminating
 corpus line hangs the suite forever, and phases 2 and 4 add exactly that kind of line.
 
-- [ ] **Step 1:** Verify the working tree holds only the intended changes:
+- [x] **Step 1:** Verify the working tree holds only the intended changes:
       `git status --short` — expected: `BashOracle.cs`, `ExternalOracle.cs`,
       `ProcessCommandExecutor.cs`, `Sharp.Shell.Tests.csproj` (coverlet.collector),
       `README.md` (security architecture section), this plan file.
-- [ ] **Step 2:** `dotnet test tests/Sharp.Shell.Tests` — expected: 1368 passed.
-- [ ] **Step 3:** With approval, commit in two pieces:
+- [x] **Step 2:** `dotnet test tests/Sharp.Shell.Tests` — expected: 1368 passed.
+- [x] **Step 3:** With approval, commit in two pieces:
       `fix: bound the oracle helpers so a non-terminating command cannot hang the suite`
       (three test-support files + csproj), and
       `docs: add the security architecture section to the readme` (README.md).
-- [ ] **Step 4:** `git checkout -b feature/coverage-hardening`
+- [x] **Step 4:** `git checkout -b feature/coverage-hardening`
 
-**Phase Summary:** _pending_
+**Phase Summary:** The oracle deadlock fix, the coverlet.collector reference and the README's
+confinement section were all already present in `482d8ab` (the repository's single initial commit),
+so steps 1–3 had nothing left to land — `git status --short` was clean and
+`dotnet test tests/Sharp.Shell.Tests` reported `Passed! - Failed: 0, Passed: 1368` in 1 m 32 s,
+matching the plan's baseline exactly. Only step 4 did work: branch `feature/coverage-hardening`
+created off `main`. Nothing was committed in this phase.
 
 ---
 
 ## Phase 1: Sed subsystem tests
 
-Status: Not started
+Status: Complete
 
 Targets: `SedOptionReader.ReadLongOption` (complexity 64, 38.5% covered, CRAP 1018.6),
 `SedFileSystem.ReadLine` (0%), `SedMachine.RenderCharacter` (41.7%),
@@ -99,7 +104,7 @@ Targets: `SedOptionReader.ReadLongOption` (complexity 64, 38.5% covered, CRAP 10
   `IsInPlace`, `InPlaceSuffix`, `IsNullSeparated`, `IsPosix`, `LineWidth`, `Error`,
   `UnsupportedFlag`.
 
-- [ ] **Step 1: Write the failing/green matrix** (most cases pass already; the point is pinning
+- [x] **Step 1: Write the failing/green matrix** (most cases pass already; the point is pinning
       every long option — the uncovered 16 lines are the long-option arms agents never write):
 
 ```csharp
@@ -194,10 +199,10 @@ Also cover `--separate`, `--posix`, `--unbuffered` (accepted, no effect), and th
 missing-value error: `SedOptions.Parse(["--expression"])` must set `Error`, not throw. Read
 `TakeValue` in `SedOptions.cs` first to assert the exact error text.
 
-- [ ] **Step 2:** `dotnet test tests/Sharp.Shell.Tests --filter "FullyQualifiedName~SedOptionsTests"`
+- [x] **Step 2:** `dotnet test tests/Sharp.Shell.Tests --filter "FullyQualifiedName~SedOptionsTests"`
       — fix any wrong expectation against the real behaviour (the source is the oracle here;
       GNU sed is the tie-breaker if the behaviour looks wrong).
-- [ ] **Step 3:** Full suite green, then propose commit
+- [x] **Step 3:** Full suite green, then propose commit
       `test: pin the sed long-option table`.
 
 ### Task 1.2: `R`, `l`, and replacement escapes through the harness
@@ -206,7 +211,7 @@ missing-value error: `SedOptions.Parse(["--expression"])` must set `Error`, not 
 - Modify: `tests/Sharp.Shell.Tests/SedAppletTests.cs` (new theories)
 - Modify: `tests/Sharp.Shell.Tests/SedScriptParserTests.cs` (unescape theories)
 
-- [ ] **Step 1:** `R` exercises `SedFileSystem.ReadLine` (currently 0%):
+- [x] **Step 1:** `R` exercises `SedFileSystem.ReadLine` (currently 0%):
 
 ```csharp
 [Fact]
@@ -230,7 +235,7 @@ public void ReadLineFromAMissingFileAddsNothing()
       `File.WriteAllText` into the harness workspace instead — check how `GlobberTests` seeds
       files and copy that.)
 
-- [ ] **Step 2:** `l` exercises `RenderCharacter` (41.7%): escapes, octal, fold, `$`:
+- [x] **Step 2:** `l` exercises `RenderCharacter` (41.7%): escapes, octal, fold, `$`:
 
 ```csharp
 [Theory]
@@ -248,17 +253,37 @@ public void ListRendersUnambiguously(string commandLine, string expected)
       Verify each expectation against GNU sed before committing (`bash -c "<the line>"`); the
       fold arithmetic (`width - 1`) is exactly the kind of thing to get wrong by hand.
 
-- [ ] **Step 3:** Replacement unescapes (`UnescapeCharacter`, 50%): theories in
+- [x] **Step 3:** Replacement unescapes (`UnescapeCharacter`, 50%): theories in
       `SedScriptParserTests` for `s/a/\t/`, `s/a/\n/`, `s/a/\\\\/`, `s/a/\a/`, and an unknown
       escape like `s/a/\q/` (GNU keeps the literal `q`) — assert against GNU behaviour.
-- [ ] **Step 4:** Full suite, then propose commit
+- [x] **Step 4:** Full suite, then propose commit
       `test: cover sed R, l rendering and replacement escapes`.
+
+### Phase Summary
+
+`SedOptionsTests.cs` is new and pins all eleven long-option arms plus the three missing-value error
+paths (`option '--expression' requires an argument` and siblings) and the unsupported-flag arm; a
+`--sandbox --quiet` case pins that an unsupported flag stops the read rather than continuing.
+`SedAppletTests` gained four `R` tests (interleave, exhaustion, missing file, and refusal outside
+the workspace with exit 4), the `l` rendering theory, and a `--posix` refusal theory.
+`SedScriptParserTests` gained a ten-row replacement-unescape theory including GNU's keep-the-letter
+rule for `\q`.
+
+One deviation from the plan's sketch: the control-character rows for `l` are seeded with
+`harness.Write` instead of `printf`, because our `printf` does not implement `\v`, `\f`, or bare
+octal `\nnn` — verified against `bash --norc --noprofile -c "printf 'a\vb\n' | od -c"`, which
+emits `a \v b \n` where ours emits `a v b \n`. That is a real divergence in
+`src/Sharp.Shell/Commands/Escapes.cs` (its switch covers only `n t r 0 a b \\`), reported to the
+user rather than fixed here, since sed's rendering is what this phase is about.
+
+Verification: `dotnet test tests/Sharp.Shell.Tests` — `Passed! - Failed: 0, Passed: 1418` (1 m 33 s),
+up 50 tests from the 1368 baseline.
 
 ---
 
 ## Phase 2: Regex translator tests
 
-Status: Not started
+Status: Complete
 
 Targets: `PosixRegexParser.ParseGnuEscape` (65.6%), `ReadBracketCharacter` (60%),
 `RegexEmitter.EscapeLiteral` (70%).
@@ -268,7 +293,7 @@ Targets: `PosixRegexParser.ParseGnuEscape` (65.6%), `ReadBracketCharacter` (60%)
 **Files:**
 - Modify: `tests/Sharp.Shell.Tests/PosixRegexTranslatorTests.cs`
 
-- [ ] **Step 1:** Read the existing test file to learn its assertion helper, then add one theory
+- [x] **Step 1:** Read the existing test file to learn its assertion helper, then add one theory
       row per escape, driven end-to-end through grep so the emitter is covered too:
 
 ```csharp
@@ -288,20 +313,49 @@ public void GnuEscapesMatchLikeGnuGrep(string commandLine, string expected)
       path — under `sed --posix`, a `\w` must refuse with `'\w' is a GNU extension` (assert the
       classification/refusal, not a crash).
 
-- [ ] **Step 2:** Bracket classes (`ReadBracketCharacter`): `[]]`, `[^]]`, `[a-]`, `[-a]`,
+- [x] **Step 2:** Bracket classes (`ReadBracketCharacter`): `[]]`, `[^]]`, `[a-]`, `[-a]`,
       `[a-c]`, `[[:alpha:]]`, `[\]]` — one theory row each through grep, expectations checked
       against GNU grep first.
-- [ ] **Step 3:** Add the escapes that are valid in *both* GNU and BSD (`\w`, `\b`, `\<`, `\>`)
+- [x] **Step 3:** Add the escapes that are valid in *both* GNU and BSD (`\w`, `\b`, `\<`, `\>`)
       as lines in the sed/grep differential corpora so the oracle keeps them honest on every
       machine. GNU-only forms stay in the unit theories.
-- [ ] **Step 4:** Full suite, then propose commit
+- [x] **Step 4:** Full suite, then propose commit
       `test: cover the GNU regex escapes and bracket-class edges`.
+
+### Phase Summary
+
+`PosixRegexTranslatorTests` gained the rest of the GNU escape switch — `\W \S \B \` \' \a \f \v \r`,
+`\cX` (including the lower-case `\ci` spelling), short numeric forms that stop at the first
+non-digit, and the four malformed-escape refusals — plus the bracket-class edges (`[\]]`, `[\\]`,
+`[\t]`, `[\n]`, `[\r]`, `[\f]`, `[\v]`, `[\a]`, the keep-the-backslash case `[\q]`, and the ranges
+`[a-]`, `[-a]`, `[a-c]`, `[a-c-]`, `[\t-\r]`). A separate theory reaches every arm of
+`RegexEmitter.EscapeLiteral` by matching literals that need emitter escaping (`#`, space, `}`, `]`)
+and control characters produced through `\cJ`, `\cM`, `\o014`, `\o013`, `\o001`, `\o177`. The
+translator API is used directly rather than driving grep, because `Compile` already runs the emitter
+— and that is the file's stated idiom.
+
+Two deviations from the plan's step 3:
+
+- The escapes were added to the **bash** differential corpus (`LanguageCorpus`) only, not the sed
+  one. `SedDifferentialTests.PosixOnlyConstructsAreUsed` asserts by design that `\w \s \b \< \>`
+  never appear there, and BSD sed genuinely does not implement them:
+  `printf 'cat cathode\n' | sed -n 's/\<cat\>/X/p'` prints nothing on this machine. Adding them
+  would have compared our answer against a dialect the oracle does not implement.
+- `\s` is excluded from the grep lines too — `printf 'a b\n' | grep -o '\s'` prints nothing under
+  BSD grep. The five lines added (`\w`, `\W`, `\<`/`\>`, `\b`, `\B`) were each checked against
+  `bash --norc --noprofile -c` first.
+
+That corpus check found a real gap while it was at it: our `grep` does not implement `-o`
+(`sharp --explain` reports `[native grep] — 'grep' does not implement -o`), so the first spelling of
+the `\B` line escalated instead of running. It was respelled with `-c`.
+
+Verification: `dotnet test tests/Sharp.Shell.Tests` — `Passed! - Failed: 0, Passed: 1461` (1 m 32 s).
 
 ---
 
 ## Phase 3: Applet gaps — find and mv
 
-Status: Not started
+Status: Complete
 
 Targets: `FindApplet.FindOptions.From` (83.3%, 11 uncovered lines), `MvApplet` file (68%).
 
@@ -311,25 +365,44 @@ Targets: `FindApplet.FindOptions.From` (83.3%, 11 uncovered lines), `MvApplet` f
 - Modify: `tests/Sharp.Shell.Tests/SearchAppletTests.cs` (or the file that already tests find —
   locate with `grep -rn "find " tests/Sharp.Shell.Tests --include="*Tests.cs" -l`)
 
-- [ ] **Step 1:** Open the Cobertura file's `FindApplet.cs` entries
+- [x] **Step 1:** Open the Cobertura file's `FindApplet.cs` entries
       (`tests/Sharp.Shell.Tests/TestResults/coverage-analysis/raw/*/coverage.cobertura.xml`,
       `<class filename="Commands/FindApplet.cs">`, lines with `hits="0"`) and list the exact
       uncovered branches. Expect them to be the rarer predicates and the unsupported-flag arm.
-- [ ] **Step 2:** One theory row per uncovered branch, plus the escalation case: an unsupported
+- [x] **Step 2:** One theory row per uncovered branch, plus the escalation case: an unsupported
       predicate such as `find . -newer x` must classify the line native, not half-run.
-- [ ] **Step 3:** Full suite, propose commit `test: cover find's remaining option branches`.
+- [x] **Step 3:** Full suite, propose commit `test: cover find's remaining option branches`.
 
 ### Task 3.2: mv paths
 
 **Files:**
 - Modify: `tests/Sharp.Shell.Tests/MutationAppletTests.cs`
 
-- [ ] **Step 1:** Theories through the harness: usage error (`mv` alone → stderr
+- [x] **Step 1:** Theories through the harness: usage error (`mv` alone → stderr
       `mv: usage: mv source... destination`, exit non-zero), missing source
       (`mv absent.txt out.txt` → `mv: absent.txt: No such file or directory`), rename,
       move-into-directory, several-sources-into-directory, overwrite of an existing target.
       Seed files the same way the existing mutation tests do.
-- [ ] **Step 2:** Full suite, propose commit `test: cover mv's error and directory paths`.
+- [x] **Step 2:** Full suite, propose commit `test: cover mv's error and directory paths`.
+
+### Phase Summary
+
+The Cobertura raw files named in step 1 are gitignored and absent from this checkout, so the
+uncovered branches were read off `FindApplet.cs` directly: every arm of `FindOptions.From` except
+`-name`, `-type` and `-maxdepth` had no test. `SearchAppletTests` now covers `-iname`, `-path`,
+`-type f`, `-mindepth`, both spellings of negation (`-not` and `!`), an explicit `-print`, several
+roots in one invocation, a single-file root, the missing-root and outside-the-workspace error arms
+(both exit 1, both keep walking the remaining roots), and the escalation case — `find . -newer`,
+`-size` and `-exec` each classify `ExecutionTier.Native` rather than running a walk that silently
+ignores the predicate.
+
+`MutationAppletTests` covers mv's remaining paths: several sources into a directory, moving a
+directory, overwriting an existing target, the usage error
+(`mv: usage: mv source... destination`, exit 2), a missing source
+(`mv: absent.txt: No such file or directory`, exit 1, remaining sources still moved), and the
+flag check (`-f`/`-n` accepted, `-v` rejected).
+
+Verification: `dotnet test tests/Sharp.Shell.Tests` — `Passed! - Failed: 0, Passed: 1481` (1 m 32 s).
 
 ---
 

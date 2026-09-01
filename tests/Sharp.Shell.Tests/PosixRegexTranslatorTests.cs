@@ -207,12 +207,122 @@ public class PosixRegexTranslatorTests
         Assert.True(Matches(@"a\tb", "a\tb"));
     }
 
+    [Theory]
+    [InlineData(@"a\Wb", "a-b", "axb")]
+    [InlineData(@"a\Sb", "axb", "a b")]
+    [InlineData(@"\Bcat", "concat", "cat dog")]
+    public void GnuNegatedClassesAndBoundariesTranslate(string pattern, string matching, string notMatching)
+    {
+        Assert.True(Matches(pattern, matching));
+        Assert.False(Matches(pattern, notMatching));
+    }
+
+    [Fact]
+    public void GnuBufferAnchorsBindToTheWholeSubject()
+    {
+        Assert.True(Matches(@"\`a", "abc"));
+        Assert.False(Matches(@"\`b", "abc"));
+        Assert.True(Matches(@"c\'", "abc"));
+        Assert.False(Matches(@"b\'", "abc"));
+    }
+
+    [Theory]
+    [InlineData(@"a\ab", "a\ab")]
+    [InlineData(@"a\fb", "a\fb")]
+    [InlineData(@"a\vb", "a\vb")]
+    [InlineData(@"a\rb", "a\rb")]
+    public void GnuControlLiteralsTranslate(string pattern, string subject)
+    {
+        Assert.True(Matches(pattern, subject));
+    }
+
+    [Theory]
+    [InlineData(@"\cA", "\u0001")]
+    [InlineData(@"\cI", "\t")]
+    [InlineData(@"\ci", "\t")]
+    public void ControlEscapesTranslate(string pattern, string subject)
+    {
+        Assert.True(Matches(pattern, subject));
+    }
+
+    [Fact]
+    public void ShortNumericEscapesStopAtTheFirstNonDigit()
+    {
+        Assert.True(Matches(@"\d65z", "Az"));
+        Assert.True(Matches(@"\x41z", "Az"));
+        Assert.True(Matches(@"\o101z", "Az"));
+    }
+
+    [Theory]
+    [InlineData(@"\c", "control character")]
+    [InlineData(@"\xz", "digits")]
+    [InlineData(@"\o", "digits")]
+    [InlineData(@"\d", "digits")]
+    public void MalformedNumericEscapesAreRefused(string pattern, string expected)
+    {
+        Assert.Contains(expected, Refusal(pattern), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EscapedMetacharactersAreLiterals()
     {
         Assert.True(Matches(@"a\.b", "a.b"));
         Assert.False(Matches(@"a\.b", "axb"));
         Assert.True(Matches(@"a\\b", @"a\b"));
+    }
+
+    // Every character the .NET emitter has to escape or spell differently, reached as a literal so
+    // the emitted pattern stays a pattern rather than becoming a syntax error.
+    [Theory]
+    [InlineData("a#b", "a#b")]
+    [InlineData("a b", "a b")]
+    [InlineData("a}b", "a}b")]
+    [InlineData("a]b", "a]b")]
+    [InlineData(@"a\cJb", "a\nb")]
+    [InlineData(@"a\cMb", "a\rb")]
+    [InlineData(@"a\o014b", "a\fb")]
+    [InlineData(@"a\o013b", "a\vb")]
+    [InlineData(@"a\o001b", "a\u0001b")]
+    [InlineData(@"a\o177b", "a\u007fb")]
+    public void LiteralsThatNeedEmitterEscapingStillMatch(string pattern, string subject)
+    {
+        Assert.True(Matches(pattern, subject));
+    }
+
+    // POSIX makes a backslash ordinary inside brackets; GNU reads its escapes there instead.
+    [Theory]
+    [InlineData(@"[\]]", "]", "a")]
+    [InlineData(@"[\\]", @"\", "a")]
+    [InlineData(@"[\t]", "\t", "t")]
+    [InlineData(@"[\n]", "\n", "n")]
+    [InlineData(@"[\r]", "\r", "r")]
+    [InlineData(@"[\f]", "\f", "f")]
+    [InlineData(@"[\v]", "\v", "v")]
+    [InlineData(@"[\a]", "\a", "a")]
+    public void BracketReadsGnuEscapes(string pattern, string matching, string notMatching)
+    {
+        Assert.True(Matches(pattern, matching));
+        Assert.False(Matches(pattern, notMatching));
+    }
+
+    [Fact]
+    public void BracketKeepsTheBackslashForAnEscapeGnuDoesNotDefine()
+    {
+        Assert.True(Matches(@"[\q]", @"\"));
+        Assert.True(Matches(@"[\q]", "q"));
+        Assert.False(Matches(@"[\q]", "a"));
+    }
+
+    [Theory]
+    [InlineData("[a-]", "-", "b")]
+    [InlineData("[-a]", "-", "b")]
+    [InlineData("[a-c]", "b", "d")]
+    [InlineData("[a-c-]", "-", "d")]
+    [InlineData(@"[\t-\r]", "\n", "a")]
+    public void BracketRangesAndTrailingHyphens(string pattern, string matching, string notMatching)
+    {
+        Assert.True(Matches(pattern, matching));
+        Assert.False(Matches(pattern, notMatching));
     }
 
     [Fact]

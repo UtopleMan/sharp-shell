@@ -83,6 +83,72 @@ public class MutationAppletTests
     }
 
     [Fact]
+    public void MvMovesSeveralSourcesIntoADirectory()
+    {
+        using ShellHarness harness = new();
+        harness.Write("a.txt", "first");
+        harness.Write("b.txt", "second");
+        harness.Run("mkdir dir");
+
+        Assert.Equal(0, harness.Run("mv a.txt b.txt dir").ExitCode);
+        Assert.Equal("first", File.ReadAllText(Path.Combine(harness.Root, "dir", "a.txt")));
+        Assert.Equal("second", File.ReadAllText(Path.Combine(harness.Root, "dir", "b.txt")));
+    }
+
+    [Fact]
+    public void MvMovesADirectory()
+    {
+        using ShellHarness harness = new();
+        harness.Write("dir/f.txt", "body");
+
+        Assert.Equal(0, harness.Run("mv dir moved").ExitCode);
+        Assert.Equal("body", File.ReadAllText(Path.Combine(harness.Root, "moved", "f.txt")));
+    }
+
+    [Fact]
+    public void MvOverwritesAnExistingTarget()
+    {
+        using ShellHarness harness = new();
+        harness.Write("a.txt", "new");
+        harness.Write("b.txt", "old");
+
+        Assert.Equal(0, harness.Run("mv a.txt b.txt").ExitCode);
+        Assert.Equal("new", File.ReadAllText(Path.Combine(harness.Root, "b.txt")));
+    }
+
+    [Fact]
+    public void MvWithoutTwoOperandsReportsItsUsage()
+    {
+        using ShellHarness harness = new();
+        ShellResult result = harness.Run("mv only.txt");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal("mv: usage: mv source... destination\n", result.Stderr);
+    }
+
+    [Fact]
+    public void MvReportsAMissingSourceAndKeepsGoing()
+    {
+        using ShellHarness harness = new();
+        harness.Write("present.txt", "body");
+        harness.Run("mkdir dir");
+
+        ShellResult result = harness.Run("mv absent.txt present.txt dir");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("mv: absent.txt: No such file or directory\n", result.Stderr);
+        Assert.Equal("body", File.ReadAllText(Path.Combine(harness.Root, "dir", "present.txt")));
+    }
+
+    [Fact]
+    public void MvRejectsAFlagItDoesNotImplement()
+    {
+        Assert.False(new MvApplet().CheckFlags(["-v", "a.txt", "b.txt"]).IsSupported);
+        Assert.True(new MvApplet().CheckFlags(["-f", "a.txt", "b.txt"]).IsSupported);
+        Assert.True(new MvApplet().CheckFlags(["-n", "a.txt", "b.txt"]).IsSupported);
+    }
+
+    [Fact]
     public void CpCopiesAFile()
     {
         using ShellHarness harness = new();

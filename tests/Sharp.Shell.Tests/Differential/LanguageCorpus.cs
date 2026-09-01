@@ -32,6 +32,14 @@ public static class LanguageCorpus
         "printf 'one\\ntwo\\nthree\\n' | tail -1",
         "printf 'x\\ny\\n' | grep y",
         "printf 'x\\ny\\n' | grep -c x",
+
+        // The GNU regex escapes BSD grep also implements, so the oracle keeps the translator honest
+        // on either platform. `\\s` is deliberately absent: BSD grep does not implement it.
+        "printf 'a1 b\\n' | grep -c '\\w'",
+        "printf 'a-b\\n' | grep -c 'a\\Wb'",
+        "printf 'cat cathode\\n' | grep -c '\\<cat\\>'",
+        "printf 'cat cathode\\n' | grep -c '\\bcat\\b'",
+        "printf 'concatenate\\ncat dog\\n' | grep -c 'cat\\B'",
         "x=1; echo $x",
         "x=1; echo ${x}2",
         "echo ${missing:-default}",
