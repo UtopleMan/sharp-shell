@@ -11,6 +11,9 @@ public sealed class HeadApplet : IApplet
 
     public bool Mutates => false;
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments, "-n"));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
         foreach (string argument in arguments)

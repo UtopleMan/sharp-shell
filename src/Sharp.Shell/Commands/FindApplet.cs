@@ -13,6 +13,9 @@ public sealed class FindApplet : IApplet
 
     public bool Mutates => false;
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FindOptions.From(arguments).RootPositions);
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
         foreach (string argument in arguments)
@@ -89,6 +92,7 @@ public sealed class FindApplet : IApplet
 
     private sealed record FindOptions(
         IReadOnlyList<string> Roots,
+        IReadOnlyList<int> RootPositions,
         string? NamePattern,
         bool NameIgnoresCase,
         string? PathPattern,
@@ -125,6 +129,7 @@ public sealed class FindApplet : IApplet
         public static FindOptions From(IReadOnlyList<string> arguments)
         {
             List<string> roots = [];
+            List<int> rootPositions = [];
             string? namePattern = null;
             bool nameIgnoresCase = false;
             string? pathPattern = null;
@@ -184,11 +189,13 @@ public sealed class FindApplet : IApplet
                 if (!seenPrimary)
                 {
                     roots.Add(argument);
+                    rootPositions.Add(index);
                 }
             }
 
             return new FindOptions(
                 roots.Count > 0 ? roots : ["."],
+                rootPositions,
                 namePattern,
                 nameIgnoresCase,
                 pathPattern,

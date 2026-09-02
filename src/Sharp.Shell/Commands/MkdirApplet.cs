@@ -10,6 +10,9 @@ public sealed class MkdirApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-p"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Writing(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) => FlagReader.RejectUnknownFlags(arguments, "-p");
 
     public AppletRun Run(AppletContext context)

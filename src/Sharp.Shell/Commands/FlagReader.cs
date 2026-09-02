@@ -18,30 +18,49 @@ internal static class FlagReader
     // digits (-A6, -5) and anything after `--` are untouched.
     public static IReadOnlyList<string> ExpandShortFlagBundles(
         IReadOnlyList<string> arguments,
-        IReadOnlyList<string> bundleableFlags)
+        IReadOnlyList<string> bundleableFlags) =>
+        ExpandShortFlagBundles(arguments, bundleableFlags, out _);
+
+    // The overload classification uses. Expanding a bundle changes the argument list's length, so an
+    // operand's position in the expanded list no longer indexes the word that produced it. Reporting
+    // where each expanded entry came from is what lets the classifier walk back to that word and ask
+    // whether it was literal.
+    public static IReadOnlyList<string> ExpandShortFlagBundles(
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<string> bundleableFlags,
+        out IReadOnlyList<int> sourcePositions)
     {
         if (bundleableFlags.Count == 0 || !arguments.Any(argument => IsBundle(argument, bundleableFlags)))
         {
+            sourcePositions = [.. Enumerable.Range(0, arguments.Count)];
             return arguments;
         }
 
         List<string> expanded = [];
+        List<int> sources = [];
+        sourcePositions = sources;
 
         for (int index = 0; index < arguments.Count; index++)
         {
             if (arguments[index] == "--")
             {
                 expanded.AddRange(arguments.Skip(index));
+                sources.AddRange(Enumerable.Range(index, arguments.Count - index));
                 return expanded;
             }
 
             if (!IsBundle(arguments[index], bundleableFlags))
             {
                 expanded.Add(arguments[index]);
+                sources.Add(index);
                 continue;
             }
 
-            expanded.AddRange(arguments[index].Skip(1).Select(letter => $"-{letter}"));
+            foreach (char letter in arguments[index].Skip(1))
+            {
+                expanded.Add($"-{letter}");
+                sources.Add(index);
+            }
         }
 
         return expanded;
@@ -71,22 +90,29 @@ internal static class FlagReader
         return FlagSupport.Supported;
     }
 
-    public static IReadOnlyList<string> Operands(IReadOnlyList<string> arguments, params string[] flagsTakingAValue)
+    public static IReadOnlyList<string> Operands(IReadOnlyList<string> arguments, params string[] flagsTakingAValue) =>
+        [.. PositionsOfOperands(arguments, flagsTakingAValue).Select(position => arguments[position])];
+
+    // The same walk, answering where rather than what. Classification needs the position so it can
+    // reach the unexpanded word behind an operand; the applets need the text.
+    public static IReadOnlyList<int> PositionsOfOperands(
+        IReadOnlyList<string> arguments,
+        params string[] flagsTakingAValue)
     {
-        List<string> operands = [];
+        List<int> positions = [];
         for (int index = 0; index < arguments.Count; index++)
         {
             string argument = arguments[index];
 
             if (argument == "--")
             {
-                operands.AddRange(arguments.Skip(index + 1));
-                return operands;
+                positions.AddRange(Enumerable.Range(index + 1, arguments.Count - index - 1));
+                return positions;
             }
 
             if (!IsFlag(argument))
             {
-                operands.Add(argument);
+                positions.Add(index);
                 continue;
             }
 
@@ -96,6 +122,6 @@ internal static class FlagReader
             }
         }
 
-        return operands;
+        return positions;
     }
 }

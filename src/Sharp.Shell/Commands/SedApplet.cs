@@ -23,6 +23,16 @@ public sealed class SedApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => [];
 
+    // -i rewrites the files it reads, so an in-place run reports both directions for the same
+    // operands. A script named with -f is read as program text and is not reported.
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments)
+    {
+        SedOptions options = SedOptions.Parse(arguments);
+        IReadOnlyList<int> inputs = options.InputFileIndices;
+
+        return options.IsInPlace ? new OperandPositions(inputs, inputs) : OperandPositions.Reading(inputs);
+    }
+
     public bool MutatesWith(IReadOnlyList<string> arguments)
     {
         SedOptions options = SedOptions.Parse(arguments);

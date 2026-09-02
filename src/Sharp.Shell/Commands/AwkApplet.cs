@@ -18,6 +18,10 @@ public sealed class AwkApplet(string name) : IApplet
 
     public IReadOnlyList<string> BundleableFlags => [];
 
+    // A program named with -f is read as program text and is not reported; the input files are.
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(AwkOptions.Parse(arguments).InputFileIndices);
+
     // The program is a program, not data: `awk "$prog" f` reaches classification as an empty script,
     // which parses perfectly and is not what will run.
     public IReadOnlyList<int> ProgramTextArguments(IReadOnlyList<string> arguments)

@@ -15,6 +15,9 @@ public sealed class WcApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-l", "-w", "-c", "-m"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-l", "-w", "-c", "-m");
 

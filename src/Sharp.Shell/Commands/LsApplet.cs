@@ -14,6 +14,9 @@ public sealed class LsApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-a", "-A", "-1", "-R", "-d"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-a", "-A", "-1", "-R", "-d");
 

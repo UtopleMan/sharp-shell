@@ -29,7 +29,7 @@ public class MinedDifferentialTests(ITestOutputHelper output)
         string[] safe =
         [
             .. SessionCommandCorpus.Commands()
-                .Select(command => (command, classification: classifier.Classify(command)))
+                .Select(command => (command, classification: classifier.Classify(command, ScratchWorkspace.State)))
                 .Where(pair => pair.classification.Tier == ExecutionTier.Owned && !pair.classification.Mutates)
                 .Select(pair => pair.command),
         ];

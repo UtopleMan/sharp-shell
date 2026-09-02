@@ -27,7 +27,8 @@ public class EscalationRateTests(ITestOutputHelper output)
         }
 
         CommandClassifier classifier = new(AppletRegistry.CreateDefault());
-        List<Classification> classifications = [.. commands.Select(classifier.Classify)];
+        List<Classification> classifications =
+            [.. commands.Select(command => classifier.Classify(command, ScratchWorkspace.State))];
 
         Report(commands, classifications);
     }

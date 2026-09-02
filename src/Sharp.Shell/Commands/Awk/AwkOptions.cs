@@ -8,6 +8,7 @@ internal sealed record AwkOptions(
     IReadOnlyList<string> Assignments,
     IReadOnlyList<string> ProgramFiles,
     IReadOnlyList<string> Operands,
+    IReadOnlyList<int> OperandIndices,
     int ProgramIndex,
     string? Error,
     string? UnsupportedFlag)
@@ -19,6 +20,25 @@ internal sealed record AwkOptions(
     public string? InlineProgram => HasProgramFile ? null : Operands.Count > 0 ? Operands[0] : null;
 
     public IReadOnlyList<string> InputOperands => HasProgramFile ? Operands : [.. Operands.Skip(1)];
+
+    // An input operand of the form var=value is an assignment, not a file, so classification must
+    // not report it as one. The rest are the files this invocation will open, at the positions the
+    // command line gave them.
+    public IReadOnlyList<int> InputFileIndices =>
+        [
+            .. Operands
+                .Zip(OperandIndices)
+                .Skip(HasProgramFile ? 0 : 1)
+                .Where(operand => !IsAssignment(operand.First))
+                .Select(operand => operand.Second),
+        ];
+
+    private static bool IsAssignment(string operand)
+    {
+        int equals = operand.IndexOf('=', StringComparison.Ordinal);
+
+        return equals > 0 && operand[..equals].All(character => character == '_' || char.IsAsciiLetterOrDigit(character));
+    }
 
     // Where the program sits in the argument list, so classification can insist that exactly that
     // word was literal before expansion. -1 when the program came from a file.
@@ -40,6 +60,8 @@ internal sealed class AwkOptionReader(IReadOnlyList<string> arguments)
     private readonly List<string> programFiles = [];
 
     private readonly List<string> operands = [];
+
+    private readonly List<int> operandIndices = [];
 
     private string? fieldSeparator;
 
@@ -80,7 +102,8 @@ internal sealed class AwkOptionReader(IReadOnlyList<string> arguments)
             ReadShortOptions(argument);
         }
 
-        return new AwkOptions(fieldSeparator, assignments, programFiles, operands, programIndex, error, unsupportedFlag);
+        return new AwkOptions(
+            fieldSeparator, assignments, programFiles, operands, operandIndices, programIndex, error, unsupportedFlag);
     }
 
     // The first operand is the program when no -f was given, and everything after it is input —
@@ -88,6 +111,7 @@ internal sealed class AwkOptionReader(IReadOnlyList<string> arguments)
     private void ReadOperand(string argument)
     {
         operands.Add(argument);
+        operandIndices.Add(index);
 
         if (isPastOptions || programFiles.Count > 0 || operands.Count != 1)
         {

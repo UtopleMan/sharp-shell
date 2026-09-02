@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Sharp.Shell.Tests.Conformance;
 using Xunit;
+using Sharp.Shell.Tests.Support;
 
 namespace Sharp.Shell.Tests.BlackBox;
 
@@ -42,7 +43,7 @@ public class SharpCorpusTests(ITestOutputHelper output)
         SpecCase[] expectedToPass =
         [
             .. passing.Where(specCase =>
-                classifier.Classify(specCase.Body).Tier == Sharp.Shell.ExecutionTier.Owned),
+                classifier.Classify(specCase.Body, ScratchWorkspace.State).Tier == Sharp.Shell.ExecutionTier.Owned),
         ];
 
         output.WriteLine(

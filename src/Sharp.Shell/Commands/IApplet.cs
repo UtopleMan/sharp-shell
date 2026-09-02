@@ -55,6 +55,11 @@ public interface IApplet
     // be literal, which is what makes `sed -n '1,5p' "$file"` checkable and `sed "$script" f` not.
     IReadOnlyList<int> ProgramTextArguments(IReadOnlyList<string> arguments) => [];
 
+    // Where this invocation's file operands sit, split into the ones it reads and the ones it
+    // writes. Classification reports the resolved paths so the host can gate each file the line
+    // touches; an applet that names no file — echo, printf, test — keeps the empty default.
+    OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) => OperandPositions.None;
+
     FlagSupport CheckFlags(IReadOnlyList<string> arguments);
 
     AppletRun Run(AppletContext context);

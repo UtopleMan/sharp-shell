@@ -11,6 +11,7 @@ internal sealed record SedOptions(
     bool SuppressesAutoPrint,
     IReadOnlyList<SedScriptSource> ScriptSources,
     IReadOnlyList<string> Operands,
+    IReadOnlyList<int> OperandIndices,
     IReadOnlyList<int> ScriptIndices,
     bool IsExtendedRegex,
     bool IsSeparate,
@@ -38,10 +39,15 @@ internal sealed record SedOptions(
 
     public IReadOnlyList<string> InputFiles => HasScriptSource ? Operands : [.. Operands.Skip(1)];
 
+    // Where those input files sat on the command line, so classification can reach the words behind
+    // them and report the files this invocation will really open.
+    public IReadOnlyList<int> InputFileIndices =>
+        HasScriptSource ? OperandIndices : [.. OperandIndices.Skip(1)];
+
     public static SedOptions Parse(IReadOnlyList<string> arguments) => new SedOptionReader(arguments).Read();
 
     public static SedOptions Empty { get; } =
-        new(false, [], [], [], false, false, false, string.Empty, false, false, DefaultLineWidth, null, null);
+        new(false, [], [], [], [], false, false, false, string.Empty, false, false, DefaultLineWidth, null, null);
 }
 
 internal sealed class SedOptionReader(IReadOnlyList<string> arguments)
@@ -55,6 +61,8 @@ internal sealed class SedOptionReader(IReadOnlyList<string> arguments)
     private readonly List<int> scriptIndices = [];
 
     private readonly List<string> operands = [];
+
+    private readonly List<int> operandIndices = [];
 
     private bool suppressesAutoPrint;
 
@@ -94,6 +102,7 @@ internal sealed class SedOptionReader(IReadOnlyList<string> arguments)
                 }
 
                 operands.Add(argument);
+                operandIndices.Add(index);
                 continue;
             }
 
@@ -116,6 +125,7 @@ internal sealed class SedOptionReader(IReadOnlyList<string> arguments)
             suppressesAutoPrint,
             scriptSources,
             operands,
+            operandIndices,
             scriptIndices,
             isExtendedRegex,
             isSeparate,

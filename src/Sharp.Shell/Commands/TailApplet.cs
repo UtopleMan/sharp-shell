@@ -14,6 +14,9 @@ public sealed class TailApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-n", "-c"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments, "-n", "-c"));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
         foreach (string argument in arguments)

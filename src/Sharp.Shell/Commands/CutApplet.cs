@@ -9,6 +9,9 @@ public sealed class CutApplet : IApplet
 
     public bool Mutates => false;
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments, "-d", "-f", "-c"));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-d", "-f", "-c", "-s");
 
