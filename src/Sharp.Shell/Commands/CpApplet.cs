@@ -10,6 +10,17 @@ public sealed class CpApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-r", "-R", "-f", "-p"];
 
+    // Every operand but the last is a source and the last is the destination, which is what makes
+    // `cp a b dir/` one write and two reads.
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments)
+    {
+        IReadOnlyList<int> positions = FlagReader.PositionsOfOperands(arguments);
+
+        return positions.Count < 2
+            ? OperandPositions.None
+            : new OperandPositions([.. positions.Take(positions.Count - 1)], [positions[^1]]);
+    }
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-r", "-R", "-f", "-p");
 

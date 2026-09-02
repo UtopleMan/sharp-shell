@@ -10,6 +10,9 @@ public sealed class TouchApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-a", "-m"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Writing(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) => FlagReader.RejectUnknownFlags(arguments, "-a", "-m");
 
     public AppletRun Run(AppletContext context)

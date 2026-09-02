@@ -11,6 +11,9 @@ public sealed class UniqApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-c", "-d", "-u"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-c", "-d", "-u");
 

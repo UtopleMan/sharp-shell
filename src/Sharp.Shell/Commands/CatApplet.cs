@@ -10,6 +10,9 @@ public sealed class CatApplet : IApplet
 
     public bool Mutates => false;
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) => FlagReader.RejectUnknownFlags(arguments);
 
     public AppletRun Run(AppletContext context)

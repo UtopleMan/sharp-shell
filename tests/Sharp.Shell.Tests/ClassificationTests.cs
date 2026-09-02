@@ -1,13 +1,14 @@
 using Sharp.Shell;
 using Sharp.Shell.Commands;
 using Xunit;
+using Sharp.Shell.Tests.Support;
 
 namespace Sharp.Shell.Tests;
 
 public class ClassificationTests
 {
     private static Classification Classify(string commandLine) =>
-        new CommandClassifier(AppletRegistry.CreateDefault()).Classify(commandLine);
+        new CommandClassifier(AppletRegistry.CreateDefault()).Classify(commandLine, ScratchWorkspace.State);
 
     [Theory]
     [InlineData("ls -a")]

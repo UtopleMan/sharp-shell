@@ -17,6 +17,9 @@ public sealed class SortApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-r", "-n", "-u"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(FlagReader.PositionsOfOperands(arguments, "-k", "-t"));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-r", "-n", "-u", "-k", "-t");
 

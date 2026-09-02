@@ -15,7 +15,7 @@ namespace Sharp.Shell;
 // partly executed `rm` would delete twice.
 public sealed class CommandClassifier(AppletRegistry applets)
 {
-    public Classification Classify(string commandLine)
+    public Classification Classify(string commandLine, ShellState state)
     {
         ParseResult parsed = Parser.Parse(commandLine);
 
@@ -24,24 +24,40 @@ public sealed class CommandClassifier(AppletRegistry applets)
             return Classification.Native([], mutates: false, parsed.UnsupportedReason!);
         }
 
-        Inspection inspection = new(applets);
+        Inspection inspection = new(applets, state);
         inspection.Walk(parsed.Program!);
 
         return inspection.Reason is null
-            ? Classification.Owned(inspection.Mutates)
+            ? Classification.Owned(
+                inspection.Mutates, inspection.Reads, inspection.Writes, inspection.KnowsEveryFile)
             : Classification.Native([.. inspection.UnownedPrograms], inspection.Mutates, inspection.Reason);
     }
 }
 
-internal sealed class Inspection(AppletRegistry applets)
+internal sealed class Inspection(AppletRegistry applets, ShellState state)
 {
-    // Form checks need somewhere to look variables up. Nothing is read from or written to disk
-    // here, and no command substitution is run — the inner source is classified, never executed.
-    private static readonly ShellState FormCheckState = new(Path.GetTempPath());
-
     private readonly List<string> unownedPrograms = [];
 
+    private readonly List<string> reads = [];
+
+    private readonly List<string> writes = [];
+
+    // A private copy of the shell's position, moved by every cd this pass can follow. Classification
+    // has no side effects, so the caller's state must not be the one that walks.
+    private readonly ShellState resolution = state.Fork();
+
+    private bool knowsWhereItIs = true;
+
+    private int conditionalDepth;
+
     public IReadOnlyList<string> UnownedPrograms => unownedPrograms;
+
+    // False once a file operand was left out because it is only a path after the line runs.
+    public bool KnowsEveryFile { get; private set; } = true;
+
+    public IReadOnlyList<string> Reads => reads;
+
+    public IReadOnlyList<string> Writes => writes;
 
     public bool Mutates { get; private set; }
 
@@ -62,7 +78,7 @@ internal sealed class Inspection(AppletRegistry applets)
                 Walk(andOr.Right);
                 return;
             case SubshellNode subshell:
-                Walk(subshell.Body);
+                WalkConditionally(subshell.Body);
                 return;
             case BraceGroupNode group:
                 Walk(group.Body);
@@ -72,7 +88,7 @@ internal sealed class Inspection(AppletRegistry applets)
                 return;
             case WhileNode loop:
                 Walk(loop.Condition);
-                Walk(loop.Body);
+                WalkConditionally(loop.Body);
                 return;
             case ForNode loop:
                 WalkFor(loop);
@@ -99,13 +115,23 @@ internal sealed class Inspection(AppletRegistry applets)
         foreach (ConditionalBranch branch in conditional.Branches)
         {
             Walk(branch.Condition);
-            Walk(branch.Body);
+            WalkConditionally(branch.Body);
         }
 
         if (conditional.ElseBody is not null)
         {
-            Walk(conditional.ElseBody);
+            WalkConditionally(conditional.ElseBody);
         }
+    }
+
+    // A branch or a loop body may run any number of times, including none, and a subshell's cd never
+    // reaches the parent at all. Whatever such a body does to the working directory, this pass cannot
+    // say where the line stands afterwards.
+    private void WalkConditionally(ShellNode body)
+    {
+        conditionalDepth++;
+        Walk(body);
+        conditionalDepth--;
     }
 
     private void WalkFor(ForNode loop)
@@ -115,7 +141,7 @@ internal sealed class Inspection(AppletRegistry applets)
             CheckWord(item);
         }
 
-        Walk(loop.Body);
+        WalkConditionally(loop.Body);
     }
 
     private void WalkCase(CaseNode branch)
@@ -129,7 +155,7 @@ internal sealed class Inspection(AppletRegistry applets)
                 CheckWord(pattern);
             }
 
-            Walk(arm.Body);
+            WalkConditionally(arm.Body);
         }
     }
 
@@ -169,6 +195,30 @@ internal sealed class Inspection(AppletRegistry applets)
             is RedirectionKind.Output
             or RedirectionKind.Append
             or RedirectionKind.OutputAndError;
+
+        RecordRedirectedFile(redirection);
+    }
+
+    // `> f` and `>> f` write f, `< f` reads it. A duplication (2>&1) names a descriptor, not a file,
+    // and a here-document has no file at all.
+    private void RecordRedirectedFile(Redirection redirection)
+    {
+        if (redirection.Target is not { } target)
+        {
+            return;
+        }
+
+        List<string>? destination = redirection.Kind switch
+        {
+            RedirectionKind.Output or RedirectionKind.Append or RedirectionKind.OutputAndError => writes,
+            RedirectionKind.Input => reads,
+            _ => null,
+        };
+
+        if (destination is not null)
+        {
+            Record(target, destination);
+        }
     }
 
     private void CheckCommandName(SimpleCommand command)
@@ -195,13 +245,19 @@ internal sealed class Inspection(AppletRegistry applets)
             return;
         }
 
+        if (applet.Name == "cd")
+        {
+            FollowDirectoryChange(command);
+        }
+
         CheckFlags(command, applet, program);
     }
 
     private void CheckFlags(SimpleCommand command, IApplet applet, string program)
     {
         List<string> words = [.. command.Words.Skip(1).Select(word => word.LiteralText)];
-        IReadOnlyList<string> arguments = FlagReader.ExpandShortFlagBundles(words, applet.BundleableFlags);
+        IReadOnlyList<string> arguments = FlagReader.ExpandShortFlagBundles(
+            words, applet.BundleableFlags, out IReadOnlyList<int> sourcePositions);
 
         // A word that is program text cannot be checked while it still needs expanding: `sed
         // "s/$x/y/"` reaches here as `s//y/`, which parses cleanly and is not the script that would
@@ -221,7 +277,124 @@ internal sealed class Inspection(AppletRegistry applets)
         }
 
         Mutates |= applet.MutatesWith(arguments);
+
+        RecordFileOperands(command, applet, arguments, sourcePositions);
     }
+
+    // Which files the invocation names, resolved the way the shell will resolve them: quoting and
+    // globbing applied, then made absolute against the workspace.
+    //
+    // An operand this pass cannot resolve is left out and KnowsEveryFile goes false. It is not
+    // escalated: the sandbox deliberately accepts `sed -n '1,5p' "$file"` as owned, and a word whose
+    // value only exists once the line runs cannot be turned into a path before it does.
+    private void RecordFileOperands(
+        SimpleCommand command,
+        IApplet applet,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int> sourcePositions)
+    {
+        OperandPositions positions = applet.FileOperandPositions(arguments);
+
+        RecordOperands(positions.Reads, command, sourcePositions, reads);
+        RecordOperands(positions.Writes, command, sourcePositions, writes);
+    }
+
+    private void RecordOperands(
+        IReadOnlyList<int> positions,
+        SimpleCommand command,
+        IReadOnlyList<int> sourcePositions,
+        List<string> destination)
+    {
+        foreach (int position in positions)
+        {
+            Record(command.Words[sourcePositions[position] + 1], destination);
+        }
+    }
+
+    // Every relative operand after a cd is read from where the cd landed, so this pass follows the
+    // ones it can see. A cd whose target only exists at run time, or one inside a branch that may not
+    // run at all, leaves the position unknown — and an unknown position makes every later operand
+    // unresolvable, because resolving it against the wrong directory would name the wrong file.
+    private void FollowDirectoryChange(SimpleCommand command)
+    {
+        if (conditionalDepth > 0)
+        {
+            knowsWhereItIs = false;
+            return;
+        }
+
+        Word? target = command.Words.Skip(1).FirstOrDefault(word => !FlagReader.IsFlag(word.LiteralText));
+
+        if (target is null)
+        {
+            resolution.TryChangeDirectory(resolution.RootPath, out _);
+            return;
+        }
+
+        if (!IsStaticallyKnown(target) || Expand(target) is not [string directory])
+        {
+            knowsWhereItIs = false;
+            return;
+        }
+
+        knowsWhereItIs &= resolution.TryChangeDirectory(directory, out _);
+    }
+
+    private IReadOnlyList<string>? Expand(Word word)
+    {
+        ExpansionResult expanded = new WordExpander(resolution, NoSubstitution).Expand(word);
+
+        return expanded.IsSupported ? expanded.Fields : null;
+    }
+
+    private void Record(Word word, List<string> destination)
+    {
+        if (!knowsWhereItIs)
+        {
+            KnowsEveryFile = false;
+            return;
+        }
+
+        if (!IsStaticallyKnown(word))
+        {
+            KnowsEveryFile = false;
+            return;
+        }
+
+        if (Expand(word) is not { } fields)
+        {
+            KnowsEveryFile = false;
+            return;
+        }
+
+        foreach (string field in fields)
+        {
+            AddDistinct(destination, resolution.Resolve(field));
+        }
+    }
+
+    private static void AddDistinct(List<string> paths, string path)
+    {
+        if (!paths.Contains(path, StringComparer.Ordinal))
+        {
+            paths.Add(path);
+        }
+    }
+
+    // Nothing runs during classification, so a substitution the expander asks for cannot be answered.
+    // No word reaching the expander here contains one: IsStaticallyKnown refuses those first.
+    private static CommandSubstitution NoSubstitution(string commandLine) => new(0, string.Empty);
+
+    // Like Word.IsFullyLiteral, plus tilde: `~/notes` resolves from the shell state alone, with no
+    // variable, no substitution and no arithmetic, so its file is knowable before the line runs.
+    private static bool IsStaticallyKnown(Word word) => word.Parts.All(IsStaticallyKnown);
+
+    private static bool IsStaticallyKnown(WordPart part) => part.Kind switch
+    {
+        WordPartKind.Literal or WordPartKind.SingleQuoted or WordPartKind.Tilde => true,
+        WordPartKind.DoubleQuoted => part.Nested is not null && part.Nested.All(IsStaticallyKnown),
+        _ => false,
+    };
 
     // A command substitution is classified, never run: its inner program set counts towards this
     // line's, because `echo $(git rev-parse HEAD)` needs git just as much as `git rev-parse` does.
@@ -246,7 +419,7 @@ internal sealed class Inspection(AppletRegistry applets)
         switch (part.Kind)
         {
             case WordPartKind.CommandSubstitution:
-                Absorb(new CommandClassifier(applets).Classify(part.Text));
+                Absorb(new CommandClassifier(applets).Classify(part.Text, resolution));
                 return;
             case WordPartKind.Parameter:
                 CheckParameterForm(part.Text);
@@ -256,7 +429,7 @@ internal sealed class Inspection(AppletRegistry applets)
 
     private void CheckParameterForm(string expression)
     {
-        ParameterResult result = ParameterExpander.Expand(expression, FormCheckState, static word => word);
+        ParameterResult result = ParameterExpander.Expand(expression, resolution, static word => word);
 
         if (result.UnsupportedReason is not null)
         {
@@ -267,6 +440,18 @@ internal sealed class Inspection(AppletRegistry applets)
     private void Absorb(Classification inner)
     {
         Mutates |= inner.Mutates;
+
+        foreach (string path in inner.Reads)
+        {
+            AddDistinct(reads, path);
+        }
+
+        foreach (string path in inner.Writes)
+        {
+            AddDistinct(writes, path);
+        }
+
+        KnowsEveryFile &= inner.Tier == ExecutionTier.Owned && inner.KnowsEveryFile;
 
         foreach (string program in inner.UnownedPrograms)
         {

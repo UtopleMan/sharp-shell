@@ -24,6 +24,9 @@ public sealed class GrepApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ShortFlags;
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Reading(GrepOptions.From(arguments).FilePositions);
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
         foreach (string argument in arguments)
@@ -295,6 +298,7 @@ public sealed class GrepApplet : IApplet
     private sealed record GrepOptions(
         string? Pattern,
         IReadOnlyList<string> Files,
+        IReadOnlyList<int> FilePositions,
         string? IncludeGlob,
         string? ExcludeGlob,
         bool IgnoresCase,
@@ -327,6 +331,7 @@ public sealed class GrepApplet : IApplet
         {
             string? pattern = null;
             List<string> files = [];
+            List<int> filePositions = [];
             string? includeGlob = null;
             string? excludeGlob = null;
             bool ignoresCase = false;
@@ -366,6 +371,7 @@ public sealed class GrepApplet : IApplet
                     }
 
                     files.Add(argument);
+                    filePositions.Add(index);
                     continue;
                 }
 
@@ -383,7 +389,7 @@ public sealed class GrepApplet : IApplet
             }
 
             return new GrepOptions(
-                pattern, files, includeGlob, excludeGlob, ignoresCase, inverts, numbersLines,
+                pattern, files, filePositions, includeGlob, excludeGlob, ignoresCase, inverts, numbersLines,
                 recurses, namesOnly, countsOnly, fixedStrings, extendedRegex, matchesWholeWords,
                 hidesNames, matchesOnly);
         }

@@ -30,7 +30,7 @@ public class AgentCorpusTests(ITestOutputHelper output)
     {
         string[] commands = Corpus();
         CommandClassifier classifier = new(AppletRegistry.CreateDefault());
-        int owned = commands.Count(command => classifier.Classify(command).Tier == ExecutionTier.Owned);
+        int owned = commands.Count(command => classifier.Classify(command, ScratchWorkspace.State).Tier == ExecutionTier.Owned);
         double rate = (double)owned / commands.Length;
 
         output.WriteLine($"owned {owned}/{commands.Length} = {rate:P1}");
@@ -107,7 +107,7 @@ public class AgentCorpusTests(ITestOutputHelper output)
         return
         [
             .. commands
-                .Select(command => (command, classification: classifier.Classify(command)))
+                .Select(command => (command, classification: classifier.Classify(command, ScratchWorkspace.State)))
                 .Where(pair => pair.classification.Tier == ExecutionTier.Owned && !pair.classification.Mutates)
                 .Select(pair => pair.command),
         ];

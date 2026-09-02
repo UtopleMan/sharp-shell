@@ -10,6 +10,9 @@ public sealed class RmApplet : IApplet
 
     public IReadOnlyList<string> BundleableFlags => ["-r", "-R", "-f"];
 
+    public OperandPositions FileOperandPositions(IReadOnlyList<string> arguments) =>
+        OperandPositions.Writing(FlagReader.PositionsOfOperands(arguments));
+
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments) =>
         FlagReader.RejectUnknownFlags(arguments, "-r", "-R", "-f", "-rf", "-fr");
 

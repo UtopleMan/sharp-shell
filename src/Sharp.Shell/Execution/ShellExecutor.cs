@@ -19,7 +19,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     // other assembly can reach execution without passing through here.
     public ShellRun Run(string commandLine, ShellState state, CancellationToken cancellationToken)
     {
-        Classification classification = classifier.Classify(commandLine);
+        Classification classification = classifier.Classify(commandLine, state);
 
         return classification.Tier == ExecutionTier.Native
             ? new ShellRun(classification, null)

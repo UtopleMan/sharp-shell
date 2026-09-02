@@ -125,7 +125,7 @@ internal sealed class ShellHarnessForCorpus : IDisposable
 
     public string CommandLine { get; }
 
-    public Classification Classify() => new CommandClassifier(AppletRegistry.CreateDefault()).Classify(CommandLine);
+    public Classification Classify() => new CommandClassifier(AppletRegistry.CreateDefault()).Classify(CommandLine, new ShellState(Root));
 
     public string RunOurs() => executor.Execute(CommandLine, new ShellState(Root), CancellationToken.None).Stdout;
 
