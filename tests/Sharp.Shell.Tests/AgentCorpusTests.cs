@@ -53,8 +53,14 @@ public class AgentCorpusTests(ITestOutputHelper output)
     {
         Assert.SkipUnless(BashOracle.IsAvailable, "no system bash to compare against");
 
-        string[] compared = Sample(Safe(Corpus()));
+        string[] sampled = Sample(Safe(Corpus()));
+        string[] compared = [.. sampled.Where(BashOracle.CanCompare)];
         using ShellHarness harness = new();
+
+        if (compared.Length < sampled.Length)
+        {
+            output.WriteLine($"{sampled.Length - compared.Length} sampled command(s) answer differently on every run and cannot be replayed");
+        }
 
         output.WriteLine($"bash {BashOracle.Version}, both sides rooted at an empty workspace");
         output.WriteLine($"comparing {compared.Length} owned, non-mutating commands");

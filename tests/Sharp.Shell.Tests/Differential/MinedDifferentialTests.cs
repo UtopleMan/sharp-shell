@@ -21,7 +21,9 @@ public class MinedDifferentialTests(ITestOutputHelper output)
     [Fact]
     public void MeasureAgreementWithBashOverRealAgentCommands()
     {
-        Assert.SkipUnless(BashOracle.IsAvailable, "no system bash to compare against");
+        // Live bash specifically: these commands are mined from this machine and run against this
+        // checkout, so no cassette recorded anywhere else can answer them.
+        Assert.SkipUnless(BashOracle.IsLive, "no system bash to compare against");
 
         CommandClassifier classifier = new(AppletRegistry.CreateDefault());
         string[] safe =
@@ -74,7 +76,7 @@ public class MinedDifferentialTests(ITestOutputHelper output)
 
         foreach (string command in commands)
         {
-            OracleResult oracle = BashOracle.Run(command, root);
+            OracleResult oracle = BashOracle.RunLive(command, root);
             ShellResult mine = RunOurs(command, root);
 
             if (string.Equals(oracle.Stdout, mine.Stdout, StringComparison.Ordinal) && oracle.ExitCode == mine.ExitCode)

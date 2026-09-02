@@ -16,8 +16,11 @@ public static class SedOracle
 
     public static bool IsAvailable => Sed.IsAvailable;
 
-    public static string Version { get; } = Sed.Version;
+    public static string Version => Sed.Version;
 
     public static OracleResult Run(IReadOnlyList<string> arguments, string input, string workingDirectory) =>
         Sed.Run(arguments, input, workingDirectory);
+
+    public static bool CanCompare(IReadOnlyList<string> arguments, string input) =>
+        Sed.CanCompare(arguments, input);
 }

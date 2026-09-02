@@ -19,4 +19,7 @@ public static class AwkOracle
     public static IReadOnlyList<ExternalOracle> All { get; } = [OneTrueAwk, Gawk];
 
     public static bool IsAvailable => All.All(oracle => oracle.IsAvailable);
+
+    public static bool CanCompare(IReadOnlyList<string> arguments, string input) =>
+        All.All(oracle => oracle.CanCompare(arguments, input));
 }

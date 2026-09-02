@@ -56,6 +56,10 @@ public class AwkAgentCorpusTests(ITestOutputHelper output)
         CorpusLine line = Corpus[lineNumber];
         using ShellHarnessForCorpus harness = new(line, Fixtures);
 
+        Assert.SkipUnless(
+            AwkOracle.CanCompare(harness.Arguments, string.Empty),
+            "this one-liner's own answer moved between recording runs, so no recording of it can be compared");
+
         output.WriteLine(harness.CommandLine);
         string actual = harness.RunOurs();
 

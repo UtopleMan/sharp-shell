@@ -5,28 +5,34 @@ namespace Sharp.Shell.Tests.Differential;
 
 // One external tool, run against a temporary workspace so its answer can be compared with ours.
 // Extracted from SedOracle when awk needed two of them; sed and awk now share the process handling,
-// the ten-second cap and the availability check.
+// the ten-second cap and the availability check. Where the tool is missing its recorded answers are
+// replayed instead, so a machine without gawk still runs the awk suites.
 public sealed class ExternalOracle
 {
     private readonly IReadOnlyList<string> leadingArguments;
+
+    private readonly OracleChannel channel;
 
     private ExternalOracle(string name, string? path, IReadOnlyList<string> leadingArguments)
     {
         Name = name;
         Path = path;
         this.leadingArguments = leadingArguments;
+        channel = OracleRecordings.Channel(path is not null);
     }
 
     public string Name { get; }
 
     public string? Path { get; }
 
-    public bool IsAvailable => Path is not null;
+    public bool IsLive => channel.IsLive;
 
-    public string Version => IsAvailable ? ReadVersion() : "unavailable";
+    public bool IsAvailable => channel.IsAvailable;
 
-    // Windows has none of these tools, so every oracle there is simply unavailable and the suites
-    // that use one skip.
+    public string Version => field ??= DescribeVersion();
+
+    // Windows has none of these tools, so every oracle there replays or, with no cassette, reports
+    // itself unavailable and the suites that use one skip.
     public static ExternalOracle Locate(string name, IEnumerable<string> candidatePaths, params string[] leadingArguments)
     {
         string? path = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
@@ -37,6 +43,18 @@ public sealed class ExternalOracle
     }
 
     public OracleResult Run(IReadOnlyList<string> arguments, string input, string workingDirectory)
+    {
+        string[] full = [.. leadingArguments, .. arguments];
+
+        return channel.Run(Name, full, input, workingDirectory, () => Execute(full, input, workingDirectory));
+    }
+
+    // A call whose recorded answer moved between two live runs cannot be replayed faithfully, so
+    // callers drop it rather than compare against a stale answer.
+    public bool CanCompare(IReadOnlyList<string> arguments, string input) =>
+        IsLive || !OracleRecordings.IsKnownUnstable(Name, [.. leadingArguments, .. arguments], input);
+
+    private OracleResult Execute(IReadOnlyList<string> arguments, string input, string workingDirectory)
     {
         using Process process = new()
         {
@@ -51,7 +69,7 @@ public sealed class ExternalOracle
             },
         };
 
-        foreach (string argument in leadingArguments.Concat(arguments))
+        foreach (string argument in arguments)
         {
             process.StartInfo.ArgumentList.Add(argument);
         }
@@ -88,11 +106,20 @@ public sealed class ExternalOracle
         }
     }
 
-    private string ReadVersion()
+    // Read straight from the process rather than through the channel: the version is reported in
+    // test output, and putting it in the cassette would record an answer nothing ever replays.
+    private string DescribeVersion()
     {
-        OracleResult result = Run(["--version"], string.Empty, System.IO.Path.GetTempPath());
-        string reported = result.Stdout.Length > 0 ? result.Stdout : result.Stderr;
+        if (!IsLive)
+        {
+            return OracleRecordings.RecordedVersion(Name) ?? "unavailable";
+        }
 
-        return reported.Split('\n')[0].Trim();
+        OracleResult result = Execute([.. leadingArguments, "--version"], string.Empty, System.IO.Path.GetTempPath());
+        string reported = result.Stdout.Length > 0 ? result.Stdout : result.Stderr;
+        string version = reported.Split('\n')[0].Trim();
+        OracleRecordings.NoteVersion(Name, version);
+
+        return version;
     }
 }

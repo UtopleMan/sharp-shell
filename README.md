@@ -27,6 +27,20 @@ dotnet build Sharp.slnx
 dotnet test tests/Sharp.Shell.Tests
 ```
 
+The differential suites compare this shell against the real `bash`, `sed` and `awk`. Where a tool is
+missing — Windows, or any machine without `gawk` — they replay
+`tests/Sharp.Shell.Tests/corpus/oracle-recordings.json`, the answers those tools gave on the machine
+that recorded them. A call with no recording fails rather than passing quietly.
+
+```
+SHARP_ORACLE_RECORD=1 dotnet test    # re-record, on a machine that has the tools
+SHARP_ORACLE_REPLAY=1 dotnet test    # prove the recording is complete, ignoring installed tools
+```
+
+Re-record on the platform CI runs on: BSD and GNU coreutils disagree about formatting, so a
+recording carries its platform with it. `MinedDifferentialTests` is deliberately not recorded — its
+commands come from whichever machine runs the suite, so it still needs a real `bash`.
+
 ## Confinement
 
 `Sharp.Shell` enforces two rules the embedding host relies on:
