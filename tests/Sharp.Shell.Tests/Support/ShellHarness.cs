@@ -32,6 +32,11 @@ internal sealed class ShellHarness : IDisposable
     public ShellResult Run(string commandLine) =>
         Executor().Execute(commandLine, new ShellState(Root), CancellationToken.None);
 
+    // The tool tier roots the shell at the filesystem and starts it in the workspace: a line may
+    // name anything, and the rule model — not the root — is what narrows it.
+    public ShellResult RunFromTheFilesystemRoot(string commandLine) =>
+        Executor().Execute(commandLine, new ShellState(Path.GetPathRoot(Root)!, Root), CancellationToken.None);
+
     // Goes through classification first, the way the host will.
     public ShellRun Classified(string commandLine) =>
         Executor().Run(commandLine, new ShellState(Root), CancellationToken.None);

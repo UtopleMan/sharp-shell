@@ -83,6 +83,62 @@ public class ShellStateTests : IDisposable
     }
 
     [Fact]
+    public void StartsAtTheGivenWorkingDirectory()
+    {
+        string filesystemRoot = Path.GetPathRoot(root)!;
+        ShellState state = new(filesystemRoot, root);
+
+        Assert.Equal(Path.GetFullPath(filesystemRoot), state.RootPath);
+        Assert.Equal(Path.GetFullPath(root), state.WorkingDirectory);
+    }
+
+    [Fact]
+    public void ResolvesARelativeOperandAgainstTheWorkingDirectoryNotTheRoot()
+    {
+        ShellState state = new(Path.GetPathRoot(root)!, root);
+
+        Assert.Equal(Path.Combine(Path.GetFullPath(root), "f.txt"), state.Resolve("f.txt"));
+    }
+
+    [Fact]
+    public void RefusesAWorkingDirectoryOutsideTheRoot()
+    {
+        Assert.Throws<ArgumentException>(() => new ShellState(Path.Combine(root, "sub"), root));
+    }
+
+    [Fact]
+    public void ChangesToTheFilesystemRootWhenThatIsTheRoot()
+    {
+        string filesystemRoot = Path.GetPathRoot(root)!;
+        ShellState state = new(filesystemRoot, root);
+
+        Assert.True(state.TryChangeDirectory(filesystemRoot, out string error));
+        Assert.Equal(string.Empty, error);
+        Assert.Equal(Path.GetFullPath(filesystemRoot), state.WorkingDirectory);
+    }
+
+    [Fact]
+    public void ClimbsAboveTheWorkingDirectoryWhenTheRootIsTheFilesystem()
+    {
+        ShellState state = new(Path.GetPathRoot(root)!, root);
+
+        Assert.True(state.TryChangeDirectory("..", out string error));
+        Assert.Equal(string.Empty, error);
+        Assert.Equal(Directory.GetParent(Path.GetFullPath(root))!.FullName, state.WorkingDirectory);
+    }
+
+    [Fact]
+    public void AForkKeepsBothTheRootAndTheWorkingDirectory()
+    {
+        ShellState state = new(Path.GetPathRoot(root)!, root);
+
+        ShellState copy = state.Fork();
+
+        Assert.Equal(state.RootPath, copy.RootPath);
+        Assert.Equal(state.WorkingDirectory, copy.WorkingDirectory);
+    }
+
+    [Fact]
     public void KnowsWhenAPathEscapesTheRoot()
     {
         ShellState state = new(root);

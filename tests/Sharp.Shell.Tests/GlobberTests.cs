@@ -1,3 +1,4 @@
+using Sharp.Shell.Execution;
 using Sharp.Shell.Tests.Support;
 using Xunit;
 
@@ -90,5 +91,31 @@ public class GlobberTests
         using ShellHarness harness = new();
 
         Assert.Equal("../*\n", harness.Run("echo ../*").Stdout);
+    }
+
+    [Fact]
+    public void ARootedPatternExpandsOutsideTheWorkspaceWhenTheRootIsTheFilesystem()
+    {
+        using ShellHarness harness = new();
+        using ScratchDirectory outside = new();
+        outside.Write("a.txt");
+        outside.Write("b.txt");
+
+        string expanded = harness.RunFromTheFilesystemRoot($"echo {outside.Path}/*.txt").Stdout;
+
+        Assert.Equal($"{outside.Path}/a.txt {outside.Path}/b.txt\n", expanded);
+    }
+
+    [Fact]
+    public void ListingARootedPatternOutsideTheWorkspaceSucceeds()
+    {
+        using ShellHarness harness = new();
+        using ScratchDirectory outside = new();
+        outside.Write("a.txt");
+
+        ShellResult result = harness.RunFromTheFilesystemRoot($"ls {outside.Path}/*.txt");
+
+        Assert.Equal(string.Empty, result.Stderr);
+        Assert.Contains("a.txt", result.Stdout, StringComparison.Ordinal);
     }
 }
