@@ -14,14 +14,16 @@ public enum ExecutionTier
 // not *what* it does — `rm -rf .` inside the workspace is fully confined and still destroys the
 // work — so the prompt policy needs both answers.
 //
-// Reads and Writes are the concrete files an owned line will open, resolved against the workspace
-// after quoting and globbing, so the host can gate each one by path rather than by tool name. They
-// are empty for a native line: that line runs as a real process with no preopen, and what it
-// touches is unknowable from here.
+// Reads and Writes are the concrete files an owned line will open, resolved against the working
+// directory after quoting and globbing, so the host can gate each one by path rather than by tool
+// name. They are empty for a native line: that line runs as a real process with no preopen, and what
+// it touches is unknowable from here.
 //
-// KnowsEveryFile says whether that list is the whole truth. An operand that only becomes a path when
-// the line runs — `cat "$file"`, `> $out` — is left out rather than guessed at, and this goes false
-// so the caller can fall back to a coarser answer instead of trusting a short list.
+// KnowsEveryRead and KnowsEveryWrite say whether each list is the whole truth. An operand that only
+// becomes a path when the line runs — `cat "$file"`, `> $out` — is left out rather than guessed at,
+// and the flag for its kind goes false so the caller falls back to a coarser question about that
+// kind alone. They are separate because `touch "$out"` hides a write and reads nothing, and a
+// coarse read question there would be a prompt about something that never happens.
 public sealed record Classification(
     ExecutionTier Tier,
     IReadOnlyList<string> UnownedPrograms,
@@ -29,15 +31,17 @@ public sealed record Classification(
     string? Reason,
     IReadOnlyList<string> Reads,
     IReadOnlyList<string> Writes,
-    bool KnowsEveryFile)
+    bool KnowsEveryRead,
+    bool KnowsEveryWrite)
 {
     public static Classification Owned(
         bool mutates,
         IReadOnlyList<string> reads,
         IReadOnlyList<string> writes,
-        bool knowsEveryFile) =>
-        new(ExecutionTier.Owned, [], mutates, null, reads, writes, knowsEveryFile);
+        bool knowsEveryRead,
+        bool knowsEveryWrite) =>
+        new(ExecutionTier.Owned, [], mutates, null, reads, writes, knowsEveryRead, knowsEveryWrite);
 
     public static Classification Native(IReadOnlyList<string> unownedPrograms, bool mutates, string reason) =>
-        new(ExecutionTier.Native, unownedPrograms, mutates, reason, [], [], false);
+        new(ExecutionTier.Native, unownedPrograms, mutates, reason, [], [], false, false);
 }

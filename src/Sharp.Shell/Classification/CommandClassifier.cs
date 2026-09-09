@@ -29,7 +29,11 @@ public sealed class CommandClassifier(AppletRegistry applets)
 
         return inspection.Reason is null
             ? Classification.Owned(
-                inspection.Mutates, inspection.Reads, inspection.Writes, inspection.KnowsEveryFile)
+                inspection.Mutates,
+                inspection.Reads,
+                inspection.Writes,
+                inspection.KnowsEveryRead,
+                inspection.KnowsEveryWrite)
             : Classification.Native([.. inspection.UnownedPrograms], inspection.Mutates, inspection.Reason);
     }
 }
@@ -38,9 +42,9 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
 {
     private readonly List<string> unownedPrograms = [];
 
-    private readonly List<string> reads = [];
+    private readonly OperandSink readOperands = new();
 
-    private readonly List<string> writes = [];
+    private readonly OperandSink writeOperands = new();
 
     // A private copy of the shell's position, moved by every cd this pass can follow. Classification
     // has no side effects, so the caller's state must not be the one that walks.
@@ -52,12 +56,16 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
 
     public IReadOnlyList<string> UnownedPrograms => unownedPrograms;
 
-    // False once a file operand was left out because it is only a path after the line runs.
-    public bool KnowsEveryFile { get; private set; } = true;
+    // False once a file operand of that kind was left out because it is only a path after the line
+    // runs. Reads and writes answer separately, so a hidden write costs the line a write question
+    // and nothing else.
+    public bool KnowsEveryRead => readOperands.KnowsEveryFile;
 
-    public IReadOnlyList<string> Reads => reads;
+    public bool KnowsEveryWrite => writeOperands.KnowsEveryFile;
 
-    public IReadOnlyList<string> Writes => writes;
+    public IReadOnlyList<string> Reads => readOperands.Paths;
+
+    public IReadOnlyList<string> Writes => writeOperands.Paths;
 
     public bool Mutates { get; private set; }
 
@@ -208,10 +216,10 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
             return;
         }
 
-        List<string>? destination = redirection.Kind switch
+        OperandSink? destination = redirection.Kind switch
         {
-            RedirectionKind.Output or RedirectionKind.Append or RedirectionKind.OutputAndError => writes,
-            RedirectionKind.Input => reads,
+            RedirectionKind.Output or RedirectionKind.Append or RedirectionKind.OutputAndError => writeOperands,
+            RedirectionKind.Input => readOperands,
             _ => null,
         };
 
@@ -284,7 +292,7 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
     // Which files the invocation names, resolved the way the shell will resolve them: quoting and
     // globbing applied, then made absolute against the workspace.
     //
-    // An operand this pass cannot resolve is left out and KnowsEveryFile goes false. It is not
+    // An operand this pass cannot resolve is left out and its kind's flag goes false. It is not
     // escalated: the sandbox deliberately accepts `sed -n '1,5p' "$file"` as owned, and a word whose
     // value only exists once the line runs cannot be turned into a path before it does.
     private void RecordFileOperands(
@@ -295,15 +303,15 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
     {
         OperandPositions positions = applet.FileOperandPositions(arguments);
 
-        RecordOperands(positions.Reads, command, sourcePositions, reads);
-        RecordOperands(positions.Writes, command, sourcePositions, writes);
+        RecordOperands(positions.Reads, command, sourcePositions, readOperands);
+        RecordOperands(positions.Writes, command, sourcePositions, writeOperands);
     }
 
     private void RecordOperands(
         IReadOnlyList<int> positions,
         SimpleCommand command,
         IReadOnlyList<int> sourcePositions,
-        List<string> destination)
+        OperandSink destination)
     {
         foreach (int position in positions)
         {
@@ -347,37 +355,17 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
         return expanded.IsSupported ? expanded.Fields : null;
     }
 
-    private void Record(Word word, List<string> destination)
+    private void Record(Word word, OperandSink destination)
     {
-        if (!knowsWhereItIs)
+        if (!knowsWhereItIs || !IsStaticallyKnown(word) || Expand(word) is not { } fields)
         {
-            KnowsEveryFile = false;
-            return;
-        }
-
-        if (!IsStaticallyKnown(word))
-        {
-            KnowsEveryFile = false;
-            return;
-        }
-
-        if (Expand(word) is not { } fields)
-        {
-            KnowsEveryFile = false;
+            destination.RecordUnresolvedOperand();
             return;
         }
 
         foreach (string field in fields)
         {
-            AddDistinct(destination, resolution.Resolve(field));
-        }
-    }
-
-    private static void AddDistinct(List<string> paths, string path)
-    {
-        if (!paths.Contains(path, StringComparer.Ordinal))
-        {
-            paths.Add(path);
+            destination.Add(resolution.Resolve(field));
         }
     }
 
@@ -441,17 +429,9 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
     {
         Mutates |= inner.Mutates;
 
-        foreach (string path in inner.Reads)
-        {
-            AddDistinct(reads, path);
-        }
-
-        foreach (string path in inner.Writes)
-        {
-            AddDistinct(writes, path);
-        }
-
-        KnowsEveryFile &= inner.Tier == ExecutionTier.Owned && inner.KnowsEveryFile;
+        bool owned = inner.Tier == ExecutionTier.Owned;
+        readOperands.Absorb(inner.Reads, owned && inner.KnowsEveryRead);
+        writeOperands.Absorb(inner.Writes, owned && inner.KnowsEveryWrite);
 
         foreach (string program in inner.UnownedPrograms)
         {
@@ -476,5 +456,36 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
         {
             unownedPrograms.Add(program);
         }
+    }
+}
+
+// The file operands of one kind, and whether they are all of them. A line that hides an operand
+// behind a variable hides it from one list only, so the two are counted apart.
+internal sealed class OperandSink
+{
+    private readonly List<string> paths = [];
+
+    public IReadOnlyList<string> Paths => paths;
+
+    public bool KnowsEveryFile { get; private set; } = true;
+
+    public void Add(string path)
+    {
+        if (!paths.Contains(path, StringComparer.Ordinal))
+        {
+            paths.Add(path);
+        }
+    }
+
+    public void RecordUnresolvedOperand() => KnowsEveryFile = false;
+
+    public void Absorb(IReadOnlyList<string> inner, bool knowsEveryFile)
+    {
+        foreach (string path in inner)
+        {
+            Add(path);
+        }
+
+        KnowsEveryFile &= knowsEveryFile;
     }
 }

@@ -47,7 +47,7 @@ public class FileOperandTests : IDisposable
 
         Assert.Equal([Absolute(expected)], classification.Reads);
         Assert.Empty(classification.Writes);
-        Assert.True(classification.KnowsEveryFile);
+        Assert.True(classification.KnowsEveryRead);
     }
 
     [Theory]
@@ -62,7 +62,7 @@ public class FileOperandTests : IDisposable
         Classification classification = Classify(commandLine);
 
         Assert.Equal([Absolute(expected)], classification.Writes);
-        Assert.True(classification.KnowsEveryFile);
+        Assert.True(classification.KnowsEveryWrite);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public class FileOperandTests : IDisposable
         Classification classification = Classify("cd sub && cat inner.txt");
 
         Assert.Equal([Absolute("sub/inner.txt")], classification.Reads);
-        Assert.True(classification.KnowsEveryFile);
+        Assert.True(classification.KnowsEveryRead);
     }
 
     [Theory]
@@ -155,8 +155,29 @@ public class FileOperandTests : IDisposable
     {
         Classification classification = Classify(commandLine);
 
-        Assert.False(classification.KnowsEveryFile);
+        Assert.False(classification.KnowsEveryRead && classification.KnowsEveryWrite);
         Assert.DoesNotContain(classification.Reads, path => path.Contains("inner.txt", StringComparison.Ordinal));
+    }
+
+    // The two flags answer apart, so the host asks about the kind that was actually hidden. A line
+    // that only writes an unnameable file must not raise a question about reading one.
+    [Fact]
+    public void AHiddenWriteLeavesTheReadsKnown()
+    {
+        Classification classification = Classify("touch \"$out\"");
+
+        Assert.False(classification.KnowsEveryWrite);
+        Assert.True(classification.KnowsEveryRead);
+    }
+
+    [Fact]
+    public void AHiddenReadLeavesTheWritesKnown()
+    {
+        Classification classification = Classify("cat \"$file\" > out.txt");
+
+        Assert.False(classification.KnowsEveryRead);
+        Assert.True(classification.KnowsEveryWrite);
+        Assert.Equal([Absolute("out.txt")], classification.Writes);
     }
 
     // A native line runs as a real process with no preopen. Naming a subset of its files would read
@@ -169,7 +190,8 @@ public class FileOperandTests : IDisposable
         Assert.Equal(ExecutionTier.Native, classification.Tier);
         Assert.Empty(classification.Reads);
         Assert.Empty(classification.Writes);
-        Assert.False(classification.KnowsEveryFile);
+        Assert.False(classification.KnowsEveryRead);
+        Assert.False(classification.KnowsEveryWrite);
     }
 
     [Fact]
@@ -188,7 +210,8 @@ public class FileOperandTests : IDisposable
 
         Assert.Empty(classification.Reads);
         Assert.Empty(classification.Writes);
-        Assert.True(classification.KnowsEveryFile);
+        Assert.True(classification.KnowsEveryRead);
+        Assert.True(classification.KnowsEveryWrite);
     }
 
     private Classification Classify(string commandLine) =>
