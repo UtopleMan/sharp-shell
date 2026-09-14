@@ -1,0 +1,15 @@
+sharp-shell
+Copyright 2026 UtopleMan
+
+This product includes software developed by the oils-for-unix project
+(https://github.com/oils-for-unix/oils), licensed under the Apache License,
+Version 2.0.
+
+The vendored portion is the spec test corpus under
+tests/Sharp.Shell.Tests/corpus/oils/, copied verbatim at commit
+15de8fd779569e6e3a9f5fcbfc00e7df0ebe0380. Its license is reproduced beside it
+in LICENSE.txt, and the copy is described in VENDORED.md. Upstream ships no
+NOTICE file of its own.
+
+That corpus is test-only. It is not referenced by anything under src/ and is
+not distributed in any built binary.
