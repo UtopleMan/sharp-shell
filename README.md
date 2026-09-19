@@ -4,13 +4,13 @@ A bash implementation that keeps the *language* and discards the Unix *process m
 command the shell owns is a C# function call in the calling process: a pipeline is a buffer between
 two functions, `$(...)` is a captured string, and there is no `fork`, no `exec`, and no `PATH` to
 borrow from. Anything it does not own — `git`, `dotnet`, `npm`, anything needing a real toolchain —
-is never partly executed: the whole line classifies as native and is handed back as the original
-string for the caller to decide about.
+the shell asks the host for, one command at a time, before it dispatches it.
 
 That property is the point. An agent's bash tool is the widest hole in its sandbox; this shell
 closes most of it by *owning* the exploratory majority of commands instead of spawning them, and by
-making the rest a visible, per-program decision the host makes rather than a side effect the shell
-already caused.
+making the rest a visible, per-command decision the host makes rather than a side effect the shell
+already caused. The host never parses bash to know what it is consenting to: the question arrives
+fully expanded, so iteration three of a loop asks about `rm build/c.cs`, not about `rm $f`.
 
 ## Projects
 
@@ -47,12 +47,49 @@ commands come from whichever machine runs the suite, so it still needs a real `b
 
 - **Rule 1 — the root.** With a root set, every path above it is refused. `sharp --root <dir>` is
   that rule at the command line.
-- **Rule 2 — all or nothing.** One unowned program in a line sends the *whole* line native. The
-  shell never runs the owned half first. `sharp --strict` refuses instead of handing over, which is
-  the configuration a sandboxed guest runs under and the only honest one to measure against.
+- **Rule 2 — ask before every dispatch.** The shell runs the line and asks about each command
+  before dispatching it, owned applet and real program alike. A line it cannot run at all is handed
+  over whole, as one decision. `sharp --strict` supplies an approver that refuses every unowned
+  name, which is the configuration a sandboxed guest runs under and the only honest one to measure
+  against.
 
-Everything that has no meaning without processes — `&`, job control, `trap`, process substitution,
-`$$` — is refused by name rather than emulated.
+  **A denial mid-line leaves the commands before it already run.** That is the cost of deciding at
+  run time and it is not recoverable: the shell can only ask about `rm $f` once `$f` has a value,
+  and by then the commands ahead of it are done. A host that needs a line to be all-or-nothing must
+  decide before calling, not during.
+
+Everything that has no meaning without processes — `&`, job control, `trap`, `coproc`, process
+substitution — is refused by name rather than emulated, and those lines keep the whole-line
+hand-back. Everything that merely *looked* like it needed processes does not: shell functions,
+`select`, `[[ … ]]`, `$$` and `$!` all run here.
+
+## The two host seams
+
+Both live in `src/Sharp.Shell`, beside each other, and both are consulted by `ShellExecutor` alone.
+
+> **The invariant: nothing starts a process except at this shell's request.**
+>
+> The host does not decide to go native, does not pre-scan the line, and does not keep a `bash -c`
+> path of its own for the cases it thinks the shell cannot handle. It answers the two questions
+> below and otherwise waits. A host that keeps its own escalation path has not adopted this design —
+> it has added a second, ungated way to start a process beside the gated one, which is the hole this
+> shell exists to close.
+
+| Seam | The shell asks |
+|---|---|
+| `ICommandApprover` | *May this run?* `Approve` for one command, with `program`, `arguments`, a canonical `commandText`, the working directory, and whether the shell is about to run its own applet. `ApproveLine` for a line the shell cannot run itself, which is the coarse case: nobody can say what the commands in it are, so the line is the target. |
+| `ICommandExecutor` | *Run this.* `Execute` for one unowned command, with its arguments already expanded. `ExecuteLine` for a line the shell cannot run itself. |
+
+**Be fail-closed.** `DenyingCommandApprover` and `NotSupportedCommandExecutor` are the shipped
+fail-closed implementations; `AllowAllCommandApprover` is the default so that embedding the library
+without plugging anything in behaves as it did before the seam existed. `ApproveLine` has no default
+implementation on purpose — gating one request and forgetting the other should not compile.
+
+A denied command exits `126`, writes `duetui-shell: <reason>` to stderr, and unwinds the run:
+`denied || fallback` does **not** run `fallback`. `ShellResult.RefusalReason` reports it without
+anyone having to parse stderr.
+
+See [docs/host-integration.md](docs/host-integration.md) for what a host has to implement.
 
 ## Used by
 

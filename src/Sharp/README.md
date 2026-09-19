@@ -1,8 +1,9 @@
 # sharp
 
 `Sharp.Shell` as a runnable shell. Commands the shell owns are C# function calls inside this
-process — no `fork`, no `exec`, no `PATH`. Anything it does not own is handed to your real shell as
-the original string.
+process — no `fork`, no `exec`, no `PATH`. Anything it does not own is started as a real program,
+one command at a time. Only a line this shell cannot run at all — `&`, `trap`, a syntax error — is
+handed to your real shell as the original string.
 
 ```
 dotnet build src/Sharp/Sharp.csproj
@@ -19,28 +20,48 @@ echo "echo hi" | sharp      read from a pipe
 
 --root <dir>   confine the shell to <dir>: every path above it is refused, which is the rule the
                sandboxed tool tier runs under. Without it the shell is unconfined, like any shell.
---explain      print each line's classification before running it.
---strict       never fall through to a real shell; an unowned line exits 127 with the reason.
-               This is the sandboxed guest's configuration, and the one to test against — with the
-               fall-through on, your real shell answers and the result measures nothing.
+--explain      print each line's classification, then one line per command the shell decided about.
+--strict       start no processes at all. An unowned command is refused where it would have been
+               dispatched: the line exits 126 with the reason, and the owned commands ahead of the
+               refusal have already run. This is the sandboxed guest's configuration, and the one
+               to test against — with real programs available, they answer and the result measures
+               nothing.
 ```
 
+## Scripts
+
+A command is not always a line, so `sharp script.sh` and `echo … | sharp` read lines until the
+command is whole: a function body, a multi-line `if`, a here-document and a trailing `\` or `|` all
+continue onto the next line. Interactively, the continuation prompt is `> `.
+
+A **syntax error stops a non-interactive shell where it stands**, as bash does: the offending
+command does not run and neither does anything after it, and the exit status is 2. A construct this
+shell does not implement — `&`, `trap`, process substitution — is not a syntax error: it is valid
+bash, so the line is handed over and the script runs on.
+
 ## What `--explain` tells you
+
+The first line classifies the line; the indented ones are the decisions, one per command, in the
+order the shell dispatched them.
 
 ```
 $ sharp --explain -c 'ls src | head -3'
 [owned]
+  owned ls src
+  owned head -3
 
-$ sharp --explain -c 'git status'
+$ sharp --explain --strict -c 'echo hi; git status'
 [native git] — 'git' is not one of the sandboxed commands
-
-$ sharp --explain -c 'rm -rf build'
-[owned mutates]
+  owned echo hi
+  native git status — refused: 'git' is not one of the sandboxed commands
 ```
 
-`[owned]` means the whole line ran here. `[native …]` names every program that forced it out, and
-the line was handed over **whole** — never partly executed here first. `mutates` means the line can
-change files, which is what the agent's tool layer prompts on.
+`[owned]` means every program in the line is one of ours. `[native …]` names the programs that are
+not — and the line **still runs**, command by command, rather than being handed over whole.
+`mutates` means the line can change files, which is what the agent's tool layer prompts on.
+
+Note what the second example shows: `echo hi` printed before `git status` was refused. A denial
+stops the line, but it cannot undo what ran ahead of it.
 
 ## Two differences from the sandboxed tool
 
@@ -58,10 +79,10 @@ change files, which is what the agent's tool layer prompts on.
   and `mksh` the same way. Every case that passes in-process **and** classifies `Owned` must also
   pass through the binary.
 
-The `Owned` filter is the subtle part. Layer 1 drives the executor directly, so an unowned command
-inside a case fails on its own and the rest of the line still runs — right for measuring the
-language. The binary honours Rule 2, where one unowned name sends the whole line elsewhere. Compare
-across that and you are measuring the rule, not the binary.
+The `Owned` filter keeps the comparison to cases whose behaviour cannot depend on what is installed
+on the machine running the suite. A case naming `git` would otherwise measure the local `git`.
 
 Everything a real shell does that has no meaning without processes — `&`, job control, `trap`,
-process substitution, `$$` — is refused by name and sent to your real shell rather than emulated.
+`coproc`, process substitution — is refused by name and sent to your real shell rather than
+emulated. Shell functions, `select`, `[[ … ]]`, `$$` and `$!` are not in that set: they need no
+process model, and they run here.
