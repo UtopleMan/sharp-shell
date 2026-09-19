@@ -4,10 +4,17 @@ Give the shell a seam the embedding host answers before **every** command dispat
 or native program, fully expanded, inside loops, branches and `$( )` — so the host never parses
 bash to decide what it is consenting to.
 
-**Status: delivered** by `9a7b8d8` (*feat: ask the host before every command dispatch*) and
-`0b3df67` (*docs: describe the per-command approval contract*). The contract as shipped lives in
-`docs/host-integration.md`. Phase checkboxes below were not back-filled — read the commits, not the
-boxes.
+**Status: delivered**, released as `v0.2.0`. The work landed in `9a7b8d8` (*feat: ask the host
+before every command dispatch*), `0b3df67` (*docs: describe the per-command approval contract*) and
+`0ab91eb` (*test: record the oracle answers the new differential needs*). The contract as shipped
+lives in `docs/host-integration.md`.
+
+Every phase below is complete, its boxes ticked, each with a Phase Summary recording what was
+decided and the verification run behind it — read them for why the code looks the way it does. What
+is *not* one-to-one is the commits: there are two rather than the six this plan's Deployment Plan
+asked for, because `ShellExecutor.cs` alone is touched by phases 1 through 5 and splitting it after
+the fact would have meant hand-authoring intermediate states that never existed and never compiled.
+Fake bisectability is worse than none, so the per-phase history lives here instead.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
