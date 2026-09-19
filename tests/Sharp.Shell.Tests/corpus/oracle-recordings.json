@@ -2795,6 +2795,202 @@
         "--norc",
         "--noprofile",
         "-c",
+        "[[ ! -f nothing-here ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ ( -n x ) ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ -n x ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ -z \u0027\u0027 ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ 2 -lt 3 ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ a == a \u0026\u0026 b == b ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ a == z || b == b ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ abc != a* ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ abc = abc ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ abc == a* ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ abc =~ ^a.c$ ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "[[ abc =~ ^b ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "add() { echo $(($1 \u002B $2)); }; add 2 3"
+      ],
+      "input": "",
+      "stdout": "5\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "all() { echo $@; }; all x y z"
+      ],
+      "input": "",
+      "stdout": "x y z\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "awk \u0027/FilteredRelation/{c\u002B\u002B} /def test/{if(c\u003E1){print \u0022Multiple FilteredRelations in test: \u0022 $0; c=0} else c=0}\u0027 ./tests/filtered_relation/tests.py"
       ],
       "input": "",
@@ -2977,6 +3173,20 @@
         "--norc",
         "--noprofile",
         "-c",
+        "count() { echo $#; }; count a b c"
+      ],
+      "input": "",
+      "stdout": "3\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "dirname /a/b/file.txt"
       ],
       "input": "",
@@ -3019,6 +3229,34 @@
         "--norc",
         "--noprofile",
         "-c",
+        "echo \u0022[$!]\u0022"
+      ],
+      "input": "",
+      "stdout": "[]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "echo \u0022[${1}]\u0022"
+      ],
+      "input": "",
+      "stdout": "[]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "echo \u0022double ${x:-d}\u0022"
       ],
       "input": "",
@@ -3037,6 +3275,20 @@
       ],
       "input": "",
       "stdout": "quoted sub\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "echo $#"
+      ],
+      "input": "",
+      "stdout": "0\n",
       "stderr": "",
       "exitCode": 0,
       "unstable": false
@@ -3299,6 +3551,20 @@
         "--norc",
         "--noprofile",
         "-c",
+        "f=notes.cs; [[ $f == *.cs ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "false || echo fallback"
       ],
       "input": "",
@@ -3383,6 +3649,20 @@
         "--norc",
         "--noprofile",
         "-c",
+        "first() { echo \u0022$1\u0022; }; first \u0027a b\u0027"
+      ],
+      "input": "",
+      "stdout": "a b\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "for i in 1 2 3; do echo $i; done | head -2"
       ],
       "input": "",
@@ -3401,6 +3681,62 @@
       ],
       "input": "",
       "stdout": "a\nb\nc\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "function greet { echo from-the-keyword; }; greet"
+      ],
+      "input": "",
+      "stdout": "from-the-keyword\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "function greet() { echo both-forms; }; greet"
+      ],
+      "input": "",
+      "stdout": "both-forms\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "greet() { echo hi; }; greet"
+      ],
+      "input": "",
+      "stdout": "hi\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "greet() { echo hi; }; greet | tr a-z A-Z"
+      ],
+      "input": "",
+      "stdout": "HI\n",
       "stderr": "",
       "exitCode": 0,
       "unstable": false
@@ -4055,6 +4391,20 @@
         "--norc",
         "--noprofile",
         "-c",
+        "if [[ -n x ]]; then echo taken; fi"
+      ],
+      "input": "",
+      "stdout": "taken\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "if false; then echo t; elif true; then echo elif-branch; fi"
       ],
       "input": "",
@@ -4111,10 +4461,234 @@
         "--norc",
         "--noprofile",
         "-c",
+        "outer() { inner; }; inner() { echo nested; }; outer"
+      ],
+      "input": "",
+      "stdout": "nested\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "pick() { cd /; }; echo before"
+      ],
+      "input": "",
+      "stdout": "before\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "printf \u0027%s-%d\\n\u0027 x 7"
       ],
       "input": "",
       "stdout": "x-7\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 dotnet build \u0027my proj\u0027"
+      ],
+      "input": "",
+      "stdout": "dotnet\u0000build\u0000my proj\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 dotnet build --no-restore"
+      ],
+      "input": "",
+      "stdout": "dotnet\u0000build\u0000--no-restore\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027$HOME\u0027 \u0027${HOME}\u0027 \u0027\u0060id\u0060\u0027 \u0027$(id)\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000$HOME\u0000${HOME}\u0000\u0060id\u0060\u0000$(id)\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027*.cs\u0027 \u0027?\u0027 \u0027[abc]\u0027 \u0027{a,b}\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000*.cs\u0000?\u0000[abc]\u0000{a,b}\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027a\nb\u0027 \u0027tab\there\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000a\nb\u0000tab\there\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027a \u0022quote\u0022\u0027 \u0027a \u0027\\\u0027\u0027quote\u0027\\\u0027\u0027\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000a \u0022quote\u0022\u0000a \u0027quote\u0027\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027back\\slash\u0027 \u0027\u0027\\\u0027\u0027\u0027 \u0027\\\u0027\\\u0027\u0027\u0027 \u0027\u0027\\\u0027\u0027\u0027\\\u0027\u0027\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000back\\slash\u0000\u0027\u0000\\\u0027\u0000\u0027\u0027\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027it\u0027\\\u0027\u0027s\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000it\u0027s\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo \u0027~\u0027 \u0027~root\u0027 \u0027!\u0027 \u0027#\u0027 \u0027\u0026\u0027 \u0027|\u0027 \u0027;\u0027 \u0027\u003C\u0027 \u0027\u003E\u0027 \u0027(\u0027 \u0027)\u0027"
+      ],
+      "input": "",
+      "stdout": "echo\u0000~\u0000~root\u0000!\u0000#\u0000\u0026\u0000|\u0000;\u0000\u003C\u0000\u003E\u0000(\u0000)\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo caf\u00E9 \u65E5\u672C\u8A9E na\u00EFve"
+      ],
+      "input": "",
+      "stdout": "echo\u0000caf\u00E9\u0000\u65E5\u672C\u8A9E\u0000na\u00EFve\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 echo hi"
+      ],
+      "input": "",
+      "stdout": "echo\u0000hi\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 grep -rn \u0027TODO|FIXME\u0027 src/Sharp.Shell"
+      ],
+      "input": "",
+      "stdout": "grep\u0000-rn\u0000TODO|FIXME\u0000src/Sharp.Shell\u0000",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u0027%s\\0\u0027 sed -i \u0027s/a b/c d/g\u0027 \u0027my file.txt\u0027"
+      ],
+      "input": "",
+      "stdout": "sed\u0000-i\u0000s/a b/c d/g\u0000my file.txt\u0000",
       "stderr": "",
       "exitCode": 0,
       "unstable": false
@@ -4131,6 +4705,48 @@
       "stdout": "one\ntwo\nthree\n",
       "stderr": "",
       "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u00271\\n\u0027 | select item in alpha beta; do echo $item; done"
+      ],
+      "input": "",
+      "stdout": "alpha\n\n",
+      "stderr": "1) alpha\n2) beta\n#? #? ",
+      "exitCode": 1,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u00272\\n\u0027 | select item in alpha beta; do echo $item; done"
+      ],
+      "input": "",
+      "stdout": "beta\n\n",
+      "stderr": "1) alpha\n2) beta\n#? #? ",
+      "exitCode": 1,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "printf \u00279\\n\u0027 | select item in alpha beta; do echo \u0022[$item]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[]\n\n",
+      "stderr": "1) alpha\n2) beta\n#? #? ",
+      "exitCode": 1,
       "unstable": false
     },
     {
@@ -5165,6 +5781,34 @@
       ],
       "input": "",
       "stdout": "a b\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "v=\u0027a b\u0027; [[ $v == \u0027a b\u0027 ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "v=\u0027a b\u0027; [[ -n $v ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
       "stderr": "",
       "exitCode": 0,
       "unstable": false

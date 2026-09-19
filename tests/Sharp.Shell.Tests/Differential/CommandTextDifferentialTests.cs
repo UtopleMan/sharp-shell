@@ -32,7 +32,7 @@ public class CommandTextDifferentialTests(ITestOutputHelper output)
     [Fact]
     public void RealBashSplitsTheTextBackIntoTheArgv()
     {
-        Assert.SkipUnless(BashOracle.IsLive, "no system bash to compare against");
+        Assert.SkipUnless(BashOracle.IsAvailable, "no system bash to compare against");
         output.WriteLine($"bash {BashOracle.Version} at {BashOracle.Path}");
 
         foreach (string[] argv in Corpus)
