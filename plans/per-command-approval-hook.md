@@ -4,6 +4,11 @@ Give the shell a seam the embedding host answers before **every** command dispat
 or native program, fully expanded, inside loops, branches and `$( )` — so the host never parses
 bash to decide what it is consenting to.
 
+**Status: delivered** by `9a7b8d8` (*feat: ask the host before every command dispatch*) and
+`0b3df67` (*docs: describe the per-command approval contract*). The contract as shipped lives in
+`docs/host-integration.md`. Phase checkboxes below were not back-filled — read the commits, not the
+boxes.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
