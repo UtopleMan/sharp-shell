@@ -9,13 +9,16 @@ public sealed record CommandExecution(bool IsSupported, int ExitCode, IEnumerabl
     public static CommandExecution NotSupported { get; } = new(false, 127, TextStream.Empty, string.Empty);
 }
 
-// The one seam: consulted only for names the applet registry does not own. Natively it runs a real
-// process, which is what unlocks the half of the conformance corpus that needs external helpers;
-// inside the wasm guest it returns NotSupported.
+// The process seam, and the only way a process is ever started. Nothing reaches it except through
+// ShellExecutor, and never before ICommandApprover has been asked — that is the invariant: a native
+// process runs because the shell asked for one, never because the host decided to go native on its
+// own. Natively it runs a real process; inside the wasm guest it returns NotSupported.
 //
-// Classification is the primary mechanism, so in the guest an unowned command is normally diverted
-// to the native tier before execution begins and this is never reached. NotSupported is the
-// fail-closed backstop for anything classification missed, not the main path.
+// The shell makes exactly two kinds of request. Execute runs one command the applet registry does
+// not own, with its arguments already expanded. ExecuteLine runs a whole line the shell cannot run
+// at all — one that will not parse, or that needs the process model the guest has no threads for —
+// and is the coarse case: nobody can say what the commands in it are, so it is approved as one
+// target or not at all.
 public interface ICommandExecutor
 {
     CommandExecution Execute(
@@ -24,6 +27,14 @@ public interface ICommandExecutor
         string workingDirectory,
         IEnumerable<string> input,
         CancellationToken cancellationToken);
+
+    // Defaulted so an executor that can only run programs — the guest, every test double — keeps
+    // the fail-closed answer without writing it out, and the shell reports the line's own reason
+    // instead.
+    CommandExecution ExecuteLine(
+        string commandLine,
+        string workingDirectory,
+        CancellationToken cancellationToken) => CommandExecution.NotSupported;
 }
 
 public sealed class NotSupportedCommandExecutor : ICommandExecutor

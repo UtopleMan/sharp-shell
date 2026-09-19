@@ -19,6 +19,12 @@ public enum ExecutionTier
 // name. They are empty for a native line: that line runs as a real process with no preopen, and what
 // it touches is unknowable from here.
 //
+// UnrunnableReason is the only verdict that stops the shell executing. It is set for a line this
+// shell cannot run at all — one that will not parse, or that needs the process model the guest has
+// no threads for — and such a line is handed to ICommandExecutor.ExecuteLine whole, as one decision.
+// Not owning `git` is not one of those reasons any more: the shell runs the line and asks about
+// `git` at the dispatch point like every other command.
+//
 // KnowsEveryRead and KnowsEveryWrite say whether each list is the whole truth. An operand that only
 // becomes a path when the line runs — `cat "$file"`, `> $out` — is left out rather than guessed at,
 // and the flag for its kind goes false so the caller falls back to a coarser question about that
@@ -32,8 +38,11 @@ public sealed record Classification(
     IReadOnlyList<string> Reads,
     IReadOnlyList<string> Writes,
     bool KnowsEveryRead,
-    bool KnowsEveryWrite)
+    bool KnowsEveryWrite,
+    string? UnrunnableReason = null)
 {
+    public bool IsRunnable => UnrunnableReason is null;
+
     public static Classification Owned(
         bool mutates,
         IReadOnlyList<string> reads,
@@ -44,4 +53,7 @@ public sealed record Classification(
 
     public static Classification Native(IReadOnlyList<string> unownedPrograms, bool mutates, string reason) =>
         new(ExecutionTier.Native, unownedPrograms, mutates, reason, [], [], false, false);
+
+    public static Classification Unrunnable(IReadOnlyList<string> unownedPrograms, bool mutates, string reason) =>
+        new(ExecutionTier.Native, unownedPrograms, mutates, reason, [], [], false, false, reason);
 }

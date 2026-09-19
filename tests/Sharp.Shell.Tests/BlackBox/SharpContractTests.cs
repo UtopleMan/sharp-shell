@@ -50,17 +50,39 @@ public sealed class SharpContractTests : IDisposable
         Assert.Equal("x", Run("printf '%s' x").Stdout);
     }
 
-    [Fact]
-    public void A_script_file_runs_line_by_line()
+    // A command is not always a line. Reading a script a line at a time runs fragments: the body of
+    // an `if` executes without its condition ever being evaluated, and a here-document's text is
+    // taken for commands. Every case here spans lines on purpose, and each is asserted twice —
+    // from a file and from a pipe — because those are two readers of the same input.
+    [Theory]
+    [InlineData("echo first\nfor i in a b; do echo $i; done\n", "first\na\nb\n")]
+    [InlineData("greet() {\n  echo hi\n}\ngreet\n", "hi\n")]
+    [InlineData("function greet {\n  echo hi\n}\ngreet\n", "hi\n")]
+    [InlineData("show() {\n  echo $1\n}\nshow a\nshow b\n", "a\nb\n")]
+    [InlineData("if false; then\n  echo taken\nfi\necho after\n", "after\n")]
+    [InlineData("if true; then\n  echo taken\nelse\n  echo other\nfi\n", "taken\n")]
+    [InlineData("f=notes.cs\nif [[ $f == *.cs ]]; then\n  echo cs\nfi\n", "cs\n")]
+    [InlineData("for i in a b; do\n  echo $i\ndone\n", "a\nb\n")]
+    [InlineData("i=0\nwhile [ $i -lt 2 ]; do\n  i=$((i+1))\ndone\necho $i\n", "2\n")]
+    [InlineData("case x in\n  x) echo matched ;;\nesac\n", "matched\n")]
+    [InlineData("cat << EOF\nbody line\nEOF\necho finished\n", "body line\nfinished\n")]
+    [InlineData("echo a |\n  tr a-z A-Z\n", "A\n")]
+    [InlineData("check() {\n  if [ -n \"$1\" ]; then\n    echo set\n  fi\n}\ncheck x\n", "set\n")]
+    [InlineData("echo 'one\ntwo'\n", "one\ntwo\n")]
+    [InlineData("echo foo\\\nbar\n", "foobar\n")]
+    public void A_multi_line_command_is_read_whole(string script, string expected)
     {
         Assert.SkipUnless(SharpBinary.IsAvailable, "sharp is not built");
-        string script = Path.Combine(root, "run.sh");
-        File.WriteAllText(script, "echo first\nfor i in a b; do echo $i; done\n");
+        string path = Path.Combine(root, "run.sh");
+        File.WriteAllText(path, script);
 
-        SharpResult result = SharpBinary.RunScript(script, root);
+        SharpResult fromFile = SharpBinary.RunScript(path, root, "--strict");
+        SharpResult fromPipe = SharpBinary.RunPiped(script, root, "--strict");
 
-        Assert.Equal("first\na\nb\n", result.Stdout);
-        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(expected, fromFile.Stdout);
+        Assert.Equal(expected, fromPipe.Stdout);
+        Assert.Equal(0, fromFile.ExitCode);
+        Assert.Equal(0, fromPipe.ExitCode);
     }
 
     [Fact]
@@ -72,6 +94,70 @@ public sealed class SharpContractTests : IDisposable
 
         Assert.Equal("piped\n", result.Stdout);
         Assert.Equal(3, result.ExitCode);
+    }
+
+    // bash stops a non-interactive shell at its first syntax error: the offending command does not
+    // run and neither does anything after it. Each case here was checked against real bash for both
+    // the output and the status.
+    [Theory]
+    [InlineData("echo one\nfi\necho three\n", "unexpected 'fi'")]
+    [InlineData("echo one\necho \"unterminated\necho three\n", "unterminated double quote")]
+    [InlineData("echo one\nesac\necho three\n", "unexpected 'esac'")]
+    [InlineData("echo one\necho >\necho three\n", "needs a target")]
+    public void A_syntax_error_stops_the_script_where_bash_would(string script, string mentioned)
+    {
+        Assert.SkipUnless(SharpBinary.IsAvailable, "sharp is not built");
+        string path = Path.Combine(root, "bad.sh");
+        File.WriteAllText(path, script);
+
+        SharpResult result = SharpBinary.RunScript(path, root, "--strict");
+
+        Assert.Equal("one\n", result.Stdout);
+        Assert.Contains(mentioned, result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(2, result.ExitCode);
+    }
+
+    // An unfinished command at the end of the input is a syntax error too — bash calls it
+    // "unexpected end of file" and exits 2 — so it reports itself rather than vanishing.
+    [Fact]
+    public void A_script_that_ends_mid_command_stops_with_its_reason()
+    {
+        Assert.SkipUnless(SharpBinary.IsAvailable, "sharp is not built");
+        string path = Path.Combine(root, "truncated.sh");
+        File.WriteAllText(path, "echo start\nif true; then\n  echo body\n");
+
+        SharpResult result = SharpBinary.RunScript(path, root, "--strict");
+
+        Assert.Equal("start\n", result.Stdout);
+        Assert.Contains("expected 'fi'", result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(2, result.ExitCode);
+    }
+
+    // The other half of the rule, and the reason a syntax error cannot simply mean "did not parse":
+    // `trap` is valid bash this shell does not implement. bash runs straight past it, so this does
+    // too — the line is handed over, not refused as malformed.
+    [Fact]
+    public void A_construct_this_shell_does_not_implement_does_not_stop_the_script()
+    {
+        Assert.SkipUnless(SharpBinary.IsAvailable, "sharp is not built");
+        string path = Path.Combine(root, "unsupported.sh");
+        File.WriteAllText(path, "echo one\ntrap 'x' EXIT\necho three\n");
+
+        SharpResult result = SharpBinary.RunScript(path, root, "--strict");
+
+        Assert.Equal("one\nthree\n", result.Stdout);
+        Assert.Contains("trap", result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(0, result.ExitCode);
+    }
+
+    [Fact]
+    public void Dash_c_reports_a_syntax_error_the_same_way()
+    {
+        SharpResult result = Run("fi");
+
+        Assert.Equal(string.Empty, result.Stdout);
+        Assert.Contains("unexpected 'fi'", result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(2, result.ExitCode);
     }
 
     [Fact]
@@ -90,7 +176,7 @@ public sealed class SharpContractTests : IDisposable
     {
         SharpResult result = Run("git status", "--strict");
 
-        Assert.Equal(127, result.ExitCode);
+        Assert.Equal(126, result.ExitCode);
         Assert.Contains("git", result.Stderr, StringComparison.Ordinal);
         Assert.Equal(string.Empty, result.Stdout);
     }

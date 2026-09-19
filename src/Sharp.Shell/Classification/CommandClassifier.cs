@@ -6,13 +6,14 @@ using Sharp.Shell.Parsing;
 
 namespace Sharp.Shell;
 
-// Rule 2, all-or-nothing per invocation: resolve every command name and flag in the line first;
-// if all are owned, execute in the sandbox, and if even one is not, hand the *original* command
-// string to the native tier untouched.
+// Answers two different questions about one command line. Tier and UnownedPrograms describe it —
+// whether the shell owns every program, and which ones it does not — and drive the host's prompt
+// policy. UnrunnableReason decides something else entirely: whether this shell can run the line at
+// all. Only that second answer stops execution.
 //
-// No partial execution, ever. `ls | awk '…'` goes entirely native rather than running `ls` here
-// and again there. This matters most for the mutating applets, where a fall-through after a
-// partly executed `rm` would delete twice.
+// `ls | awk '…'` is Native and runnable: the shell runs it, owns `ls`, and asks ICommandExecutor
+// for `awk`. `git status &` is unrunnable, because the shell has no process model to put a job in
+// the background with.
 public sealed class CommandClassifier(AppletRegistry applets)
 {
     public Classification Classify(string commandLine, ShellState state)
@@ -21,11 +22,16 @@ public sealed class CommandClassifier(AppletRegistry applets)
 
         if (!parsed.IsParsed)
         {
-            return Classification.Native([], mutates: false, parsed.UnsupportedReason!);
+            return Classification.Unrunnable([], mutates: false, parsed.UnsupportedReason!);
         }
 
         Inspection inspection = new(applets, state);
         inspection.Walk(parsed.Program!);
+
+        if (inspection.UnrunnableReason is { } unrunnable)
+        {
+            return Classification.Unrunnable([.. inspection.UnownedPrograms], inspection.Mutates, unrunnable);
+        }
 
         return inspection.Reason is null
             ? Classification.Owned(
@@ -41,6 +47,10 @@ public sealed class CommandClassifier(AppletRegistry applets)
 internal sealed class Inspection(AppletRegistry applets, ShellState state)
 {
     private readonly List<string> unownedPrograms = [];
+
+    // Functions this line defines, plus the ones the session already has. Calling one is owned: the
+    // shell runs the body itself, and every command inside it is dispatched through the same hook.
+    private readonly HashSet<string> definedFunctions = new(StringComparer.Ordinal);
 
     private readonly OperandSink readOperands = new();
 
@@ -70,6 +80,11 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
     public bool Mutates { get; private set; }
 
     public string? Reason { get; private set; }
+
+    // An expansion form the shell does not implement cannot be worked around at run time the way an
+    // unowned program can: there is no other tier to ask. The line is unrunnable, the same as one
+    // that will not parse.
+    public string? UnrunnableReason { get; private set; }
 
     public void Walk(ShellNode node)
     {
@@ -103,6 +118,15 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
                 return;
             case CaseNode branch:
                 WalkCase(branch);
+                return;
+            case SelectNode menu:
+                WalkSelect(menu);
+                return;
+            case FunctionDefinition definition:
+                WalkFunction(definition);
+                return;
+            case ConditionNode condition:
+                WalkAllWords(condition.Words);
                 return;
             case SimpleCommand command:
                 WalkCommand(command);
@@ -144,12 +168,30 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
 
     private void WalkFor(ForNode loop)
     {
-        foreach (Word item in loop.Items)
-        {
-            CheckWord(item);
-        }
-
+        WalkAllWords(loop.Items);
         WalkConditionally(loop.Body);
+    }
+
+    private void WalkSelect(SelectNode menu)
+    {
+        WalkAllWords(menu.Items);
+        WalkConditionally(menu.Body);
+    }
+
+    // A function body is walked so its programs count towards the line's, but the body may never
+    // run, so it is walked conditionally — the same treatment a loop body gets.
+    private void WalkFunction(FunctionDefinition definition)
+    {
+        definedFunctions.Add(definition.Name);
+        WalkConditionally(definition.Body);
+    }
+
+    private void WalkAllWords(IReadOnlyList<Word> words)
+    {
+        foreach (Word word in words)
+        {
+            CheckWord(word);
+        }
     }
 
     private void WalkCase(CaseNode branch)
@@ -244,6 +286,11 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
         if (program.Contains('/', StringComparison.Ordinal) || program.Contains('\\', StringComparison.Ordinal))
         {
             Escalate(program, $"'{program}' is an explicit path, so it is not an owned command");
+            return;
+        }
+
+        if (definedFunctions.Contains(program) || resolution.Functions.ContainsKey(program))
+        {
             return;
         }
 
@@ -421,7 +468,8 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
 
         if (result.UnsupportedReason is not null)
         {
-            Escalate(null, result.UnsupportedReason);
+            UnrunnableReason ??= result.UnsupportedReason;
+            Reason ??= result.UnsupportedReason;
         }
     }
 
@@ -441,6 +489,11 @@ internal sealed class Inspection(AppletRegistry applets, ShellState state)
         if (inner.Tier == ExecutionTier.Native)
         {
             Reason ??= inner.Reason;
+        }
+
+        if (!inner.IsRunnable)
+        {
+            UnrunnableReason ??= inner.UnrunnableReason;
         }
     }
 

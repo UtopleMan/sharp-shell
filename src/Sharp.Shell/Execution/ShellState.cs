@@ -1,3 +1,5 @@
+using Sharp.Shell.Parsing;
+
 namespace Sharp.Shell.Execution;
 
 // One shell invocation's mutable state: where it is, what its variables hold, what the last command
@@ -16,6 +18,15 @@ public sealed class ShellState(string rootPath, string? workingDirectory = null)
 
     public Dictionary<string, string> Variables { get; } = new(StringComparer.Ordinal);
 
+    // Shell functions, by name. They live on the state rather than the executor because they are
+    // part of what one session accumulates, exactly as variables are.
+    public Dictionary<string, ShellNode> Functions { get; } = new(StringComparer.Ordinal);
+
+    // $1, $2, $# — empty outside a function, because this shell is never given script arguments.
+    public IReadOnlyList<string> PositionalArguments { get; private set; } = [];
+
+    public void SetPositionalArguments(IReadOnlyList<string> arguments) => PositionalArguments = arguments;
+
     public int LastExitCode { get; set; }
 
     // Set by the exit builtin. The executor checks it after each command rather than an exception
@@ -30,6 +41,23 @@ public sealed class ShellState(string rootPath, string? workingDirectory = null)
         ExitStatus = status;
     }
 
+    // Set when the host's approver denies a command. It unwinds the run the way an exit does, and
+    // for the same reason: a refusal that merely returned non-zero would let `denied || fallback`
+    // route around it into a branch nobody approved.
+    public bool RefusalRequested { get; private set; }
+
+    public string? RefusalReason { get; private set; }
+
+    public void RequestRefusal(string reason)
+    {
+        RefusalRequested = true;
+        RefusalReason = reason;
+    }
+
+    // Whether the run is on its way out, by either route. Every construct that can continue to a
+    // next command checks this before doing so.
+    public bool IsUnwinding => ExitRequested || RefusalRequested;
+
     // Command substitution runs against a copy, so a cd or an assignment inside $(...) does not
     // leak into the surrounding shell.
     public ShellState Fork()
@@ -39,6 +67,13 @@ public sealed class ShellState(string rootPath, string? workingDirectory = null)
         {
             copy.Variables[variable.Key] = variable.Value;
         }
+
+        foreach (KeyValuePair<string, ShellNode> function in Functions)
+        {
+            copy.Functions[function.Key] = function.Value;
+        }
+
+        copy.SetPositionalArguments(PositionalArguments);
 
         return copy;
     }

@@ -154,4 +154,164 @@ public class ControlFlowTests
 
         Assert.NotEqual(0, harness.Run("if true; then echo y").ExitCode);
     }
+
+    // Functions, select and [[ ]] were refused by name until the shell stopped handing whole lines
+    // away. None of them needs a process; they were simply unwritten.
+
+    [Fact]
+    public void AFunctionRunsItsBodyWhenItIsCalled()
+    {
+        Assert.Equal("hi\n", Out("greet() { echo hi; }; greet"));
+    }
+
+    [Fact]
+    public void TheKeywordFormDefinesTheSameFunction()
+    {
+        Assert.Equal("hi\n", Out("function greet { echo hi; }; greet"));
+        Assert.Equal("hi\n", Out("function greet() { echo hi; }; greet"));
+    }
+
+    [Fact]
+    public void AFunctionReceivesItsArgumentsAsPositionalParameters()
+    {
+        Assert.Equal("b 3\n", Out("show() { echo $2 $#; }; show a b c"));
+    }
+
+    [Fact]
+    public void ThePositionalParametersAreRestoredAfterTheCall()
+    {
+        Assert.Equal("inner\n\n", Out("show() { echo $1; }; show inner; echo $1"));
+    }
+
+    [Fact]
+    public void AFunctionSeesTheCallersWorkingDirectoryAndChangesItForGood()
+    {
+        using ShellHarness harness = new();
+        Directory.CreateDirectory(Path.Combine(harness.Root, "inner"));
+
+        ShellResult result = harness.Run("move() { cd inner; }; move; pwd");
+
+        Assert.Equal($"{Path.Combine(harness.Root, "inner")}\n", result.Stdout);
+    }
+
+    [Fact]
+    public void AFunctionCallsAnotherFunction()
+    {
+        Assert.Equal("nested\n", Out("outer() { inner; }; inner() { echo nested; }; outer"));
+    }
+
+    [Fact]
+    public void AFunctionIsAPipelineStage()
+    {
+        Assert.Equal("HI\n", Out("greet() { echo hi; }; greet | tr a-z A-Z"));
+    }
+
+    [Fact]
+    public void AFunctionReadsItsStandardInput()
+    {
+        Assert.Equal("piped\n", Out("through() { cat; }; echo piped | through"));
+    }
+
+    [Fact]
+    public void AFunctionTakesPrecedenceOverAnAppletOfTheSameName()
+    {
+        Assert.Equal("shadowed\n", Out("echo() { printf 'shadowed\\n'; }; echo hi"));
+    }
+
+    // A stack overflow cannot be caught, so runaway recursion is stopped by a cap rather than by
+    // the process dying.
+    [Fact]
+    public void RunawayRecursionIsStoppedRatherThanCrashing()
+    {
+        using ShellHarness harness = new();
+
+        ShellResult result = harness.Run("loop() { loop; }; loop");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("nesting exceeded", result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelectRunsItsBodyOncePerReply()
+    {
+        Assert.Equal("alpha\nbeta\n\n", Out("printf '1\\n2\\n' | select x in alpha beta; do echo $x; done"));
+    }
+
+    [Fact]
+    public void SelectWritesItsMenuToStandardError()
+    {
+        using ShellHarness harness = new();
+
+        ShellResult result = harness.Run("printf '1\\n' | select x in alpha beta; do echo $x; done");
+
+        Assert.Equal("1) alpha\n2) beta\n", result.Stderr);
+    }
+
+    [Fact]
+    public void SelectLeavesTheVariableEmptyForAReplyOutOfRange()
+    {
+        Assert.Equal("[]\n\n", Out("printf '9\\n' | select x in alpha beta; do echo \"[$x]\"; done"));
+    }
+
+    [Fact]
+    public void SelectRecordsTheRawReply()
+    {
+        Assert.Equal("9\n\n", Out("printf '9\\n' | select x in alpha; do echo $REPLY; done"));
+    }
+
+    [Fact]
+    public void ADoubleBracketConditionAnswersLikeTest()
+    {
+        Assert.Equal("0\n", Out("[[ -n x ]]; echo $?"));
+        Assert.Equal("1\n", Out("[[ -z x ]]; echo $?"));
+        Assert.Equal("0\n", Out("[[ 2 -lt 3 ]]; echo $?"));
+    }
+
+    // The two places [[ ]] is not test: == matches a pattern, and the operands are not split.
+    [Fact]
+    public void DoubleBracketEqualsMatchesAPattern()
+    {
+        Assert.Equal("0\n", Out("f=notes.cs; [[ $f == *.cs ]]; echo $?"));
+        Assert.Equal("1\n", Out("f=notes.md; [[ $f == *.cs ]]; echo $?"));
+    }
+
+    [Fact]
+    public void DoubleBracketDoesNotSplitAnUnquotedValue()
+    {
+        Assert.Equal("0\n", Out("v='a b'; [[ -n $v ]]; echo $?"));
+        Assert.Equal("0\n", Out("v='a b'; [[ $v == 'a b' ]]; echo $?"));
+    }
+
+    [Fact]
+    public void DoubleBracketDoesNotGlobItsOperands()
+    {
+        using ShellHarness harness = new();
+        harness.Write("one.cs", string.Empty);
+        harness.Write("two.cs", string.Empty);
+
+        Assert.Equal("0\n", harness.Run("[[ '*.cs' == '*.cs' ]]; echo $?").Stdout);
+    }
+
+    [Fact]
+    public void DoubleBracketTakesRegularExpressions()
+    {
+        Assert.Equal("0\n", Out("[[ abc =~ ^a.c$ ]]; echo $?"));
+        Assert.Equal("1\n", Out("[[ abc =~ ^b ]]; echo $?"));
+    }
+
+    [Fact]
+    public void DoubleBracketJoinsConditionsWithTheShellOperators()
+    {
+        Assert.Equal("0\n", Out("[[ a == a && b == b ]]; echo $?"));
+        Assert.Equal("1\n", Out("[[ a == a && b == z ]]; echo $?"));
+        Assert.Equal("0\n", Out("[[ a == z || b == b ]]; echo $?"));
+        Assert.Equal("0\n", Out("[[ ( -n x ) ]]; echo $?"));
+    }
+
+    // `]]` only closes the condition when it is bare; quoted, it is an operand like any other.
+    [Fact]
+    public void AQuotedTerminatorIsAnOperand()
+    {
+        Assert.Equal("1\n", Out("[[ -z ']]' ]]; echo $?"));
+    }
 }

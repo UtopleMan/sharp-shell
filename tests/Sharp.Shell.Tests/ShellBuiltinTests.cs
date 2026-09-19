@@ -111,4 +111,59 @@ public class ShellBuiltinTests
 
         Assert.NotEqual(0, harness.Run("[ a = a").ExitCode);
     }
+
+    // $$ and $! were refused by name because they name processes. They are answered now, with the
+    // honesty that matters here: $$ is a fixed synthetic value, not a process id.
+    [Fact]
+    public void TheProcessIdIsSyntheticAndStable()
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal("1 1\n", harness.Run("echo $$ $$").Stdout);
+    }
+
+    [Fact]
+    public void TheLastBackgroundJobIsEmptyBecauseThereIsNeverOne()
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal("[]\n", harness.Run("echo \"[$!]\"").Stdout);
+    }
+
+    [Fact]
+    public void ThereAreNoPositionalParametersOutsideAFunction()
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal("0 []\n", harness.Run("echo $# \"[$1]\"").Stdout);
+    }
+
+    [Fact]
+    public void ArithmeticReadsThePositionalParameters()
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal("5\n", harness.Run("add() { echo $(($1 + $2)); }; add 2 3").Stdout);
+    }
+
+    // "$@" is one string here and N fields in bash. They agree for arguments without whitespace,
+    // and the case where they would not is refused rather than answered wrongly.
+    [Fact]
+    public void AllArgumentsJoinWhenNoneContainsWhitespace()
+    {
+        using ShellHarness harness = new();
+
+        Assert.Equal("x y z\n", harness.Run("all() { echo $@; }; all x y z").Stdout);
+    }
+
+    [Fact]
+    public void AllArgumentsIsRefusedWhenOneContainsWhitespace()
+    {
+        using ShellHarness harness = new();
+
+        ShellResult result = harness.Run("all() { echo $@; }; all 'a b' c");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("$@", result.Stderr, StringComparison.Ordinal);
+    }
 }

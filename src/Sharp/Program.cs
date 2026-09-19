@@ -11,7 +11,8 @@ using Sharp;
 //                  tool tier's own rule, made available here so it can be tried directly.
 //   --explain      print each line's classification before running it: whether the shell owns the
 //                  line, which programs forced it out to a real shell, and whether it mutates.
-//   --strict       never fall through to a real shell — an unowned line exits 127 with the reason.
+//   --strict       never fall through to a real shell — an unowned command is refused with its
+//                  reason.
 //                  This is the sandboxed guest's configuration, and the one to test against: with
 //                  the fall-through on, your real shell answers and the result measures nothing.
 internal static class Program
@@ -37,8 +38,22 @@ internal static class Program
         };
 
         return options.Command is { } command
-            ? session.Run(command, interrupt.Token)
+            ? RunOneCommand(session, command, interrupt)
             : RunLines(session, options, interrupt);
+    }
+
+    private static int RunOneCommand(Session session, string command, CancellationTokenSource interrupt) =>
+        CommandReader.SyntaxErrorIn(command) is { } reason
+            ? ReportSyntaxError(reason)
+            : RunOne(session, command, interrupt);
+
+    // bash stops a non-interactive shell at its first syntax error: the offending command does not
+    // run and neither does anything after it. An interactive shell reports and carries on, because
+    // the next thing typed is a fresh start.
+    private static int ReportSyntaxError(string reason)
+    {
+        Console.Error.WriteLine($"sharp: {reason}");
+        return 2;
     }
 
     private static int RunLines(Session session, Options options, CancellationTokenSource interrupt)
@@ -52,21 +67,40 @@ internal static class Program
             Console.Error.WriteLine("owned commands run in-process; anything else is handed to your real shell.");
         }
 
+        CommandReader commands = new();
         int status = 0;
 
         while (true)
         {
             if (interactive)
             {
-                Console.Write($"{Prompt(session, options.Root)}$ ");
+                Console.Write(commands.IsContinuing ? "> " : $"{Prompt(session, options.Root)}$ ");
             }
 
             if (reader.ReadLine() is not { } line)
             {
-                return status;
+                // The input ended in the middle of a command. It runs anyway, so that it reports
+                // its own unterminated-construct error rather than vanishing.
+                return commands.IsContinuing ? RunOneCommand(session, commands.Pending, interrupt) : status;
             }
 
-            status = RunOne(session, line, interrupt);
+            if (!commands.TryComplete(line, out string command))
+            {
+                continue;
+            }
+
+            if (CommandReader.SyntaxErrorIn(command) is { } reason)
+            {
+                if (!interactive)
+                {
+                    return ReportSyntaxError(reason);
+                }
+
+                ReportSyntaxError(reason);
+                continue;
+            }
+
+            status = RunOne(session, command, interrupt);
 
             if (session.WantsExit)
             {

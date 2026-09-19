@@ -95,7 +95,6 @@ public class ClassificationTests
     [Theory]
     [InlineData("sleep 1 &", "background")]
     [InlineData("diff <(a) <(b)", "process substitution")]
-    [InlineData("echo $$", "$$")]
     [InlineData("echo 'unterminated", "unterminated")]
     public void UnsupportedConstructsEscalateWithTheirReason(string commandLine, string mentioned)
     {

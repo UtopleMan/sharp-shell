@@ -83,7 +83,7 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
 
     private ExpansionResult? AddArithmetic(WordPart part, bool quoted, List<Fragment> fragments)
     {
-        if (!ArithmeticEvaluator.TryEvaluate(part.Text, state.Variables, out long value, out string error))
+        if (!ArithmeticEvaluator.TryEvaluate(part.Text, state, out long value, out string error))
         {
             return ExpansionResult.Failed(error);
         }

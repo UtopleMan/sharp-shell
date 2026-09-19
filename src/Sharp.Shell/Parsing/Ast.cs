@@ -59,3 +59,16 @@ public sealed record ForNode(string Variable, IReadOnlyList<Word> Items, ShellNo
 public sealed record CaseArm(IReadOnlyList<Word> Patterns, ShellNode Body);
 
 public sealed record CaseNode(Word Subject, IReadOnlyList<CaseArm> Arms) : ShellNode;
+
+// `name() { … }` and `function name { … }`. The body is stored, not run; the call site runs it
+// through the same dispatch point every other command goes through.
+public sealed record FunctionDefinition(string Name, ShellNode Body) : ShellNode;
+
+// `[[ … ]]`. It is not a SimpleCommand because its operands are expanded without field splitting
+// or globbing — `[[ -n $x ]]` holds for an unquoted value with a space in it, and `[[ $f == *.cs ]]`
+// matches a pattern rather than the files in the directory.
+public sealed record ConditionNode(IReadOnlyList<Word> Words) : ShellNode;
+
+// `select name in words; do … done`. A loop over a menu: the prompt goes to stderr, the reply comes
+// from stdin, and end of input ends the loop.
+public sealed record SelectNode(string Variable, IReadOnlyList<Word> Items, ShellNode Body) : ShellNode;

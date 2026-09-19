@@ -15,15 +15,12 @@ namespace Sharp.Shell.Tests.BlackBox;
 // Only cases the library already passes are run: a case the library fails tells us nothing new
 // here, while one it passes and the binary fails is a bug in the binary.
 //
-// And only cases the classifier calls Owned. Layer 1 drives the executor directly, so an unowned
-// command inside a case fails on its own and the rest of the line still runs — that is the right
-// way to measure the *language*. The binary honours Rule 2 instead: one unowned name sends the
-// whole line to the native tier, so under --strict nothing runs at all. Comparing across that
-// difference measures the rule, not the binary, and 191 cases "regressed" for exactly this reason
-// on the first run of this test.
+// And only cases the classifier calls Owned, so that what is being compared cannot depend on which
+// programs happen to be installed on the machine running the suite. A case naming `git` would
+// otherwise measure the local `git`.
 //
-// --strict is still essential. With the fall-through on, an unowned command would be answered by
-// the real bash on the machine and the case would "pass" without this shell doing anything.
+// --strict is still essential. Without it an unowned command would be started for real and the
+// case would "pass" without this shell doing anything.
 public class SharpCorpusTests(ITestOutputHelper output)
 {
     [Fact]
@@ -32,40 +29,95 @@ public class SharpCorpusTests(ITestOutputHelper output)
         Assert.SkipUnless(SharpBinary.IsAvailable, "sharp is not built");
         Assert.SkipUnless(CorpusSelector.IsAvailable, "the vendored corpus is not in the test output");
 
+        SpecCase[] comparable = Comparable();
+        output.WriteLine($"{comparable.Length} comparable cases through {SharpBinary.Path}");
+
+        Report("pass in-process but not through the binary", comparable, Disagrees);
+    }
+
+    // The same corpus read the way a script is read, one line at a time, rather than handed over as
+    // a single argument. A command is not always a line — 94% of these cases span several, and
+    // 1102 of them contain a multi-line construct — so this is what stops the reader running
+    // fragments: an `if` body without its condition, a here-document's text taken for commands.
+    //
+    // The assertion is agreement between the two forms rather than against the corpus, which
+    // isolates the reader: if the line itself is wrong, the test above says so first.
+    [Fact]
+    public void AScriptFileReadsTheSameAsOneCommandString()
+    {
+        Assert.SkipUnless(SharpBinary.IsAvailable, "sharp is not built");
+        Assert.SkipUnless(CorpusSelector.IsAvailable, "the vendored corpus is not in the test output");
+
+        SpecCase[] comparable = Comparable();
+        int spanningLines = comparable.Count(specCase => specCase.Body.TrimEnd('\n').Contains('\n', StringComparison.Ordinal));
+        output.WriteLine($"{comparable.Length} comparable cases, {spanningLines} of them spanning more than one line");
+
+        Report("read differently from a file than from -c", comparable, ReadsDifferently);
+    }
+
+    private void Report(string complaint, SpecCase[] cases, Func<SpecCase, string?> check)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<string> failures = [.. cases.Select(check).OfType<string>()];
+
+        output.WriteLine($"{cases.Length - failures.Count}/{cases.Length} agree, in {stopwatch.Elapsed.TotalSeconds:F1}s");
+
+        Assert.True(
+            failures.Count == 0,
+            $"{failures.Count} case(s) {complaint}:\n{string.Join('\n', failures.Take(20))}");
+    }
+
+    // Only cases the library already passes, and only those whose behaviour cannot depend on what
+    // is installed on this machine.
+    private static SpecCase[] Comparable()
+    {
         IReadOnlySet<string> knownFailures = ExpectedFailures.Load();
         Sharp.Shell.CommandClassifier classifier = new(Sharp.Shell.Commands.AppletRegistry.CreateDefault());
 
-        SpecCase[] passing =
+        return
         [
-            .. CorpusSelector.Cases().Where(specCase => !specCase.IsUnparsed && !knownFailures.Contains(specCase.Id)),
+            .. CorpusSelector.Cases()
+                .Where(specCase => !specCase.IsUnparsed && !knownFailures.Contains(specCase.Id))
+                .Where(specCase =>
+                    classifier.Classify(specCase.Body, ScratchWorkspace.State).Tier == Sharp.Shell.ExecutionTier.Owned),
         ];
+    }
 
-        SpecCase[] expectedToPass =
-        [
-            .. passing.Where(specCase =>
-                classifier.Classify(specCase.Body, ScratchWorkspace.State).Tier == Sharp.Shell.ExecutionTier.Owned),
-        ];
+    // Each form gets its own workspace: the first run's side effects must not be the second run's
+    // starting conditions, and the script file itself must not appear in a workspace an `ls` case
+    // is about to list.
+    private static string? ReadsDifferently(SpecCase specCase)
+    {
+        string scripts = Directory.CreateTempSubdirectory("sharp-corpus-scripts").FullName;
+        string inlineRoot = Directory.CreateTempSubdirectory("sharp-corpus-inline").FullName;
+        string scriptRoot = Directory.CreateTempSubdirectory("sharp-corpus-script").FullName;
 
-        output.WriteLine(
-            $"{passing.Length} cases pass in-process, of which {expectedToPass.Length} classify Owned " +
-            $"and are therefore comparable; running each through {SharpBinary.Path}");
-
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<string> regressions = [];
-
-        foreach (SpecCase specCase in expectedToPass)
+        try
         {
-            if (Disagrees(specCase) is { } detail)
+            string path = Path.Combine(scripts, "case.sh");
+            File.WriteAllText(path, specCase.Body.EndsWith('\n') ? specCase.Body : $"{specCase.Body}\n");
+
+            SharpResult inline = SharpBinary.RunCommand(specCase.Body, inlineRoot, "--strict");
+            SharpResult script = SharpBinary.RunScript(path, scriptRoot, "--strict");
+
+            string inlineOutput = WithoutWorkspace(inline.Stdout, inlineRoot);
+            string scriptOutput = WithoutWorkspace(script.Stdout, scriptRoot);
+
+            if (!string.Equals(inlineOutput, scriptOutput, StringComparison.Ordinal))
             {
-                regressions.Add(detail);
+                return $"  {specCase.Id} {specCase.Description}\n      -c '{Escape(inlineOutput)}' != file '{Escape(scriptOutput)}'";
             }
+
+            return inline.ExitCode == script.ExitCode
+                ? null
+                : $"  {specCase.Id} {specCase.Description}\n      -c status {inline.ExitCode} != file status {script.ExitCode}";
         }
-
-        output.WriteLine($"{expectedToPass.Length - regressions.Count}/{expectedToPass.Length} agree, in {stopwatch.Elapsed.TotalSeconds:F1}s");
-
-        Assert.True(
-            regressions.Count == 0,
-            $"{regressions.Count} case(s) pass in-process but not through the binary:\n{string.Join('\n', regressions.Take(20))}");
+        finally
+        {
+            TryDelete(scripts);
+            TryDelete(inlineRoot);
+            TryDelete(scriptRoot);
+        }
     }
 
     private static string? Disagrees(SpecCase specCase)
@@ -90,6 +142,11 @@ public class SharpCorpusTests(ITestOutputHelper output)
             TryDelete(root);
         }
     }
+
+    // The two forms run in two workspaces, so a case that prints where it is — `pwd`, `realpath` —
+    // would differ for a reason that has nothing to do with how its lines were read.
+    private static string WithoutWorkspace(string output, string root) =>
+        output.Replace(root, "<workspace>", StringComparison.Ordinal);
 
     private static string Escape(string text)
     {

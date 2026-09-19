@@ -9,7 +9,12 @@ namespace Sharp.Shell.Tests;
 // confinement gain shrinks toward architecture, not safety", and it should be measured early
 // rather than at the end. This is that measurement.
 //
-// It asserts only that the corpus was readable. The number is information, not a gate — a gate
+// Two numbers now, because the per-command approval hook split what "escalates" means. Native is
+// the old one: a line the shell does not own every program in. Unrunnable is the one that costs
+// something — a line the shell cannot run at all, which is handed over whole and gated as a single
+// decision. Every other line runs here and is gated command by command, whatever its tier.
+//
+// It asserts only that the corpus was readable. The numbers are information, not a gate — a gate
 // would make a quiet machine or a different working style look like a regression.
 public class EscalationRateTests(ITestOutputHelper output)
 {
@@ -36,10 +41,13 @@ public class EscalationRateTests(ITestOutputHelper output)
     private void Report(IReadOnlyList<string> commands, IReadOnlyList<Classification> classifications)
     {
         int owned = classifications.Count(classification => classification.Tier == ExecutionTier.Owned);
+        int unrunnable = classifications.Count(classification => !classification.IsRunnable);
         int mutating = classifications.Count(classification => classification.Mutates);
 
-        output.WriteLine($"owned (runs confined):  {owned} ({Percent(owned, commands.Count)})");
-        output.WriteLine($"native (escalates):     {commands.Count - owned} ({Percent(commands.Count - owned, commands.Count)})");
+        output.WriteLine($"owned (every program ours):  {owned} ({Percent(owned, commands.Count)})");
+        output.WriteLine($"native (some program not):   {commands.Count - owned} ({Percent(commands.Count - owned, commands.Count)})");
+        output.WriteLine($"runnable (gated per command): {commands.Count - unrunnable} ({Percent(commands.Count - unrunnable, commands.Count)})");
+        output.WriteLine($"unrunnable (gated whole):     {unrunnable} ({Percent(unrunnable, commands.Count)})");
         output.WriteLine($"of all commands, mutating: {mutating} ({Percent(mutating, commands.Count)})");
 
         output.WriteLine(string.Empty);
@@ -67,10 +75,22 @@ public class EscalationRateTests(ITestOutputHelper output)
         }
 
         output.WriteLine(string.Empty);
-        output.WriteLine("sample escalating lines:");
+        output.WriteLine("reasons a line cannot be run at all, by frequency:");
+
+        foreach (var reason in classifications
+            .Where(classification => !classification.IsRunnable)
+            .GroupBy(classification => classification.UnrunnableReason!, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .Take(25))
+        {
+            output.WriteLine($"  {reason.Count(),5}  {reason.Key}");
+        }
+
+        output.WriteLine(string.Empty);
+        output.WriteLine("sample lines handed over whole:");
 
         foreach (string command in commands
-            .Where((_, index) => classifications[index].Tier == ExecutionTier.Native)
+            .Where((_, index) => !classifications[index].IsRunnable)
             .Take(20))
         {
             output.WriteLine($"  {Trim(command)}");

@@ -90,15 +90,35 @@ public class SharpSessionTests : IDisposable
         Assert.StartsWith("[owned mutates]", errors.ToString(), StringComparison.Ordinal);
     }
 
+    // Strict no longer refuses to execute the line; it refuses the unowned command at the dispatch
+    // point, which is a refusal — 126 — rather than a command that could not be found.
     [Fact]
-    public void StrictRefusesAnUnownedLineWithItsReason()
+    public void StrictRefusesAnUnownedCommandWithItsReason()
     {
         int status = Confined().Run("git status", CancellationToken.None);
 
-        Assert.Equal(127, status);
+        Assert.Equal(126, status);
         Assert.Equal(string.Empty, output.ToString());
-        Assert.StartsWith("sharp: ", errors.ToString(), StringComparison.Ordinal);
-        Assert.Contains("git", errors.ToString(), StringComparison.Ordinal);
+        Assert.Equal("duetui-shell: 'git' is not one of the sandboxed commands\n", errors.ToString());
+    }
+
+    // The cost of deciding at run time: the commands ahead of the refusal have already run.
+    [Fact]
+    public void StrictRunsTheOwnedCommandsAheadOfTheRefusal()
+    {
+        int status = Confined().Run("echo first; git status; echo never", CancellationToken.None);
+
+        Assert.Equal(126, status);
+        Assert.Equal("first\n", output.ToString());
+    }
+
+    [Fact]
+    public void ExplainNamesEachCommandItDecidedAbout()
+    {
+        Confined(explains: true).Run("echo hi; git status", CancellationToken.None);
+
+        Assert.Contains("  owned echo hi", errors.ToString(), StringComparison.Ordinal);
+        Assert.Contains("  native git status — refused: ", errors.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

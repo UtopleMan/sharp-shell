@@ -128,9 +128,7 @@ public class ParserTests
     [InlineData("sleep 1 &", "background")]
     [InlineData("diff <(a) <(b)", "process substitution")]
     [InlineData("cat >(tee log)", "process substitution")]
-    [InlineData("echo $$", "$$")]
     [InlineData("echo $PPID", "$PPID")]
-    [InlineData("echo $!", "$!")]
     [InlineData("trap 'x' EXIT", "trap")]
     [InlineData("jobs", "jobs")]
     [InlineData("fg %1", "fg")]
@@ -164,11 +162,14 @@ public class ParserTests
     }
 
     [Theory]
-    [InlineData("select x in a; do echo $x; done", "select")]
-    [InlineData("function f { echo x; }", "function")]
-    public void UnsupportedKeywordsAreRefusedByName(string source, string mentioned)
+    [InlineData("select x in a; do echo $x; done", typeof(SelectNode))]
+    [InlineData("f() { echo x; }", typeof(FunctionDefinition))]
+    [InlineData("function f { echo x; }", typeof(FunctionDefinition))]
+    [InlineData("function f() { echo x; }", typeof(FunctionDefinition))]
+    [InlineData("[[ -f x ]]", typeof(ConditionNode))]
+    public void ParsesTheConstructsThatNeedNoProcessModel(string source, Type expected)
     {
-        Assert.Contains(mentioned, Unsupported(source), StringComparison.Ordinal);
+        Assert.IsType(expected, Parsed(source));
     }
 
     [Theory]

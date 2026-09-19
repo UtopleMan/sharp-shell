@@ -1,9 +1,16 @@
 using Sharp.Shell.Execution;
+using Sharp.Shell.Expansion;
+using Sharp.Shell.Text;
 
 namespace Sharp.Shell.Commands;
 
-// `test` and `[` are the same applet under two names. Every operator it does not implement is
-// refused up front, so a condition is never silently evaluated the wrong way.
+// `test`, `[` and `[[` are the same applet under three names. Every operator it does not implement
+// is refused up front, so a condition is never silently evaluated the wrong way.
+//
+// `[[` differs in two places, and only two: its `==` and `!=` match a glob pattern rather than
+// comparing text, and it has `=~` for a regular expression. Everything else — the file tests, the
+// numeric comparisons, the boolean operators — is the same condition language, so it is the same
+// parser rather than a second one that would drift.
 public sealed class TestApplet(string name) : IApplet
 {
     private static readonly string[] UnaryOperators = ["-e", "-f", "-d", "-r", "-w", "-x", "-s", "-z", "-n"];
@@ -12,6 +19,13 @@ public sealed class TestApplet(string name) : IApplet
     public string Name => name;
 
     public bool Mutates => false;
+
+    private string? Closer => name switch
+    {
+        "[" => "]",
+        "[[" => "]]",
+        _ => null,
+    };
 
     public FlagSupport CheckFlags(IReadOnlyList<string> arguments)
     {
@@ -33,18 +47,18 @@ public sealed class TestApplet(string name) : IApplet
     {
         IReadOnlyList<string> arguments = context.Arguments;
 
-        if (name == "[")
+        if (Closer is { } closer)
         {
-            if (arguments.Count == 0 || arguments[^1] != "]")
+            if (arguments.Count == 0 || arguments[^1] != closer)
             {
-                context.WriteError("[: missing ']'\n");
+                context.WriteError($"{name}: missing '{closer}'\n");
                 return AppletRun.Failed(2);
             }
 
             arguments = [.. arguments.Take(arguments.Count - 1)];
         }
 
-        ConditionParser parser = new(arguments, context.State);
+        ConditionParser parser = new(arguments, context.State, name == "[[");
         bool value = parser.ParseExpression();
 
         if (parser.Error is not null)
@@ -57,7 +71,7 @@ public sealed class TestApplet(string name) : IApplet
     }
 }
 
-internal sealed class ConditionParser(IReadOnlyList<string> arguments, ShellState state)
+internal sealed class ConditionParser(IReadOnlyList<string> arguments, ShellState state, bool matchesPatterns)
 {
     private int index;
 
@@ -65,23 +79,33 @@ internal sealed class ConditionParser(IReadOnlyList<string> arguments, ShellStat
 
     public bool ParseExpression()
     {
-        bool left = ParseTerm();
-
-        while (index < arguments.Count && arguments[index] is "-a" or "-o")
-        {
-            bool isAnd = arguments[index] == "-a";
-            index++;
-            bool right = ParseTerm();
-            left = isAnd ? left && right : left || right;
-        }
+        bool value = ParseBooleanChain();
 
         if (index < arguments.Count && Error is null)
         {
             Error = $"unexpected argument '{arguments[index]}'";
         }
 
+        return value;
+    }
+
+    // `-a` / `-o` inside [ ] and `&&` / `||` inside [[ ]] are the same two operators spelled twice.
+    private bool ParseBooleanChain()
+    {
+        bool left = ParseTerm();
+
+        while (index < arguments.Count && IsConjunction(arguments[index]))
+        {
+            bool isAnd = arguments[index] is "-a" or "&&";
+            index++;
+            bool right = ParseTerm();
+            left = isAnd ? left && right : left || right;
+        }
+
         return left;
     }
+
+    private static bool IsConjunction(string candidate) => candidate is "-a" or "-o" or "&&" or "||";
 
     private bool ParseTerm()
     {
@@ -94,6 +118,11 @@ internal sealed class ConditionParser(IReadOnlyList<string> arguments, ShellStat
         {
             index++;
             return !ParseTerm();
+        }
+
+        if (matchesPatterns && arguments[index] == "(")
+        {
+            return ParseGroup();
         }
 
         if (index + 2 < arguments.Count + 1 && index + 1 < arguments.Count && IsBinary(arguments[index + 1]))
@@ -115,7 +144,23 @@ internal sealed class ConditionParser(IReadOnlyList<string> arguments, ShellStat
         candidate is "-e" or "-f" or "-d" or "-r" or "-w" or "-x" or "-s" or "-z" or "-n";
 
     private static bool IsBinary(string candidate) =>
-        candidate is "=" or "!=" or "-eq" or "-ne" or "-lt" or "-le" or "-gt" or "-ge";
+        candidate is "=" or "==" or "!=" or "=~" or "<" or ">"
+            or "-eq" or "-ne" or "-lt" or "-le" or "-gt" or "-ge";
+
+    private bool ParseGroup()
+    {
+        index++;
+        bool value = ParseBooleanChain();
+
+        if (index >= arguments.Count || arguments[index] != ")")
+        {
+            Error = "expected ')'";
+            return false;
+        }
+
+        index++;
+        return value;
+    }
 
     private bool ParseUnary()
     {
@@ -178,17 +223,50 @@ internal sealed class ConditionParser(IReadOnlyList<string> arguments, ShellStat
         string right = arguments[index];
         index++;
 
-        if (operatorName == "=")
+        if (operatorName is "=" or "==")
         {
-            return string.Equals(left, right, StringComparison.Ordinal);
+            return Equal(left, right);
         }
 
         if (operatorName == "!=")
         {
-            return !string.Equals(left, right, StringComparison.Ordinal);
+            return !Equal(left, right);
+        }
+
+        if (operatorName == "=~")
+        {
+            return MatchesRegex(left, right);
+        }
+
+        if (operatorName is "<" or ">")
+        {
+            int order = string.CompareOrdinal(left, right);
+            return operatorName == "<" ? order < 0 : order > 0;
         }
 
         return CompareNumbers(left, operatorName, right);
+    }
+
+    // Inside [[ ]] the right operand of == is a glob pattern, which is the one place where using
+    // `test`'s rule would silently give the wrong answer: `[[ $f == *.cs ]]` is a match, not a
+    // comparison against the four characters `*.cs`.
+    private bool Equal(string left, string right) =>
+        matchesPatterns
+            ? PatternMatcher.Matches(left, right)
+            : string.Equals(left, right, StringComparison.Ordinal);
+
+    private bool MatchesRegex(string subject, string pattern)
+    {
+        RegexTranslation translation = PosixRegexTranslator.Translate(
+            pattern, RegexDialect.ExtendedPosix, allowsGnuExtensions: false, usesMatchExtent: false);
+
+        if (!translation.IsTranslated)
+        {
+            Error = $"=~: {translation.RefusalReason}";
+            return false;
+        }
+
+        return System.Text.RegularExpressions.Regex.IsMatch(subject, translation.Pattern!);
     }
 
     private bool CompareNumbers(string left, string operatorName, string right)

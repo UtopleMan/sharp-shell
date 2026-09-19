@@ -22,4 +22,22 @@ public class PipelineStopTests
         Assert.Equal("line 1\nline 2\nline 3\n", result.Stdout);
         Assert.True(counting.Produced <= 4, $"the producer yielded {counting.Produced} lines for a head -3");
     }
+
+    // The same property across the process seam, in both directions at once: an owned producer
+    // feeds a native consumer, whose output feeds an owned consumer that stops early. An executor
+    // that drained its input, or a boundary that buffered its output, runs the counters away.
+    [Fact]
+    public void AFinishedConsumerStopsTheProducerAcrossTheNativeBoundary()
+    {
+        StreamingCommandExecutor external = new();
+        using ShellHarness harness = new(external);
+        CountingApplet counting = new();
+        harness.Add(counting);
+
+        ShellResult result = harness.Run("counting | native-cat | head -3");
+
+        Assert.Equal("line 1\nline 2\nline 3\n", result.Stdout);
+        Assert.True(counting.Produced <= 4, $"the producer yielded {counting.Produced} lines for a head -3");
+        Assert.True(external.Consumed <= 4, $"the native stage consumed {external.Consumed} lines for a head -3");
+    }
 }

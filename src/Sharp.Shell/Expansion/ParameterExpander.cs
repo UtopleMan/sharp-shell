@@ -55,13 +55,42 @@ public static class ParameterExpander
         result = expression switch
         {
             "?" => ParameterResult.Ok(state.LastExitCode.ToString()),
-            "#" => ParameterResult.Ok("0"),
+            "#" => ParameterResult.Ok(state.PositionalArguments.Count.ToString()),
             "0" => ParameterResult.Ok("duetui-shell"),
-            "@" or "*" => ParameterResult.Ok(string.Empty),
-            _ => expression.All(char.IsAsciiDigit) ? ParameterResult.Ok(string.Empty) : null,
+            "$" => ParameterResult.Ok(SyntheticProcessId),
+            "!" => ParameterResult.Ok(string.Empty),
+            "@" or "*" => AllPositional(state),
+            _ => expression.All(char.IsAsciiDigit) ? Positional(expression, state) : null,
         };
 
         return result is not null;
+    }
+
+    // $$ answers a fixed number rather than a real process id: this shell is not a process, and a
+    // value that moved between runs would make every differential comparison unreproducible. Hosts
+    // that need uniqueness must not build temp-file names from it.
+    private const string SyntheticProcessId = "1";
+
+    private static ParameterResult Positional(string digits, ShellState state)
+    {
+        int position = int.Parse(digits);
+
+        return ParameterResult.Ok(position >= 1 && position <= state.PositionalArguments.Count
+            ? state.PositionalArguments[position - 1]
+            : string.Empty);
+    }
+
+    // "$@" is N fields in bash and one field here, because an expansion answers with one string.
+    // The two agree for every argument without whitespace in it, so the narrow case where they
+    // would differ is refused rather than answered wrongly.
+    private static ParameterResult AllPositional(ShellState state)
+    {
+        if (state.PositionalArguments.Any(argument => argument.Any(char.IsWhiteSpace)))
+        {
+            return ParameterResult.Unsupported("$@ is not supported when an argument contains whitespace");
+        }
+
+        return ParameterResult.Ok(string.Join(' ', state.PositionalArguments));
     }
 
     private static ParameterResult ApplyOperator(

@@ -9,21 +9,68 @@ namespace Sharp.Shell.Execution;
 // Runs a parsed program by calling functions, never by starting processes. A pipeline is the
 // producer's lazy output handed to the consumer as its input; the last stage is the only one
 // drained, so a consumer that stops early stops everything upstream of it.
-public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor external)
+public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor external, ICommandApprover approver)
 {
+    // "found but not executable", which is what a refusal is: the shell knows the command and will
+    // not run it. 127 stays reserved for a name nothing answers to.
+    private const int RefusedExitCode = 126;
+
+    // A function that calls itself has no iteration guard the way a loop does, and a stack overflow
+    // cannot be caught. The cap is the guard; it is deliberately far above any real nesting.
+    private const int MAX_FUNCTION_DEPTH = 64;
+
+    // `[[` is a keyword, so it is held here rather than in the registry: registering it would make
+    // it reachable by expansion, and `x='[['; $x -f f ]]` is an error in bash, not a condition.
+    private static readonly IApplet Condition = new TestApplet("[[");
+
     private readonly CommandClassifier classifier = new(applets);
 
-    // The only public way in. Classification happens after parsing and flag-checking but before any
-    // side effect: a Native verdict returns with Result null and nothing touched, so the caller
-    // hands the original command string to the native tier. Execute is internal precisely so no
+    private int functionDepth;
+
+    public ShellExecutor(AppletRegistry applets, ICommandExecutor external)
+        : this(applets, external, new AllowAllCommandApprover())
+    {
+    }
+
+    // The only public way in. Not owning a program in the line is no longer a reason to hand it
+    // back: the shell runs the line and asks about each command as it dispatches it. Only a line
+    // this shell cannot run at all goes out whole, and it goes out through the same seam, because
+    // the shell is the only thing that ever asks for a process. Execute is internal precisely so no
     // other assembly can reach execution without passing through here.
     public ShellRun Run(string commandLine, ShellState state, CancellationToken cancellationToken)
     {
         Classification classification = classifier.Classify(commandLine, state);
 
-        return classification.Tier == ExecutionTier.Native
-            ? new ShellRun(classification, null)
-            : new ShellRun(classification, Execute(commandLine, state, cancellationToken));
+        return new ShellRun(
+            classification,
+            classification.IsRunnable
+                ? Execute(commandLine, state, cancellationToken)
+                : RunWholeLine(commandLine, classification, state, cancellationToken));
+    }
+
+    // The coarse request. A line nobody can decompose is approved as one target, and a host that
+    // will not take that decision gets a refusal rather than a silent escape.
+    private ShellResult RunWholeLine(
+        string commandLine,
+        Classification classification,
+        ShellState state,
+        CancellationToken cancellationToken)
+    {
+        CommandApproval approval = approver.ApproveLine(commandLine, state.WorkingDirectory, cancellationToken);
+
+        if (!approval.IsAllowed)
+        {
+            string refusal = approval.Reason ?? "the command line was not approved";
+            state.RequestRefusal(refusal);
+
+            return new ShellResult(RefusedExitCode, string.Empty, $"duetui-shell: {refusal}\n", refusal);
+        }
+
+        CommandExecution execution = external.ExecuteLine(commandLine, state.WorkingDirectory, cancellationToken);
+
+        return execution.IsSupported
+            ? new ShellResult(execution.ExitCode, TextStream.Collect(execution.Output), execution.Error)
+            : new ShellResult(127, string.Empty, $"duetui-shell: {classification.UnrunnableReason}\n");
     }
 
     internal ShellResult Execute(string commandLine, ShellState state, CancellationToken cancellationToken)
@@ -46,7 +93,8 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             text => standardError.Append(text),
             cancellationToken);
 
-        return new ShellResult(exitCode, standardOutput.ToString(), standardError.ToString());
+        return new ShellResult(
+            exitCode, standardOutput.ToString(), standardError.ToString(), state.RefusalReason);
     }
 
     private int Run(
@@ -66,7 +114,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             WhileNode loop => RunWhile(loop, state, writeOutput, writeError, cancellationToken),
             ForNode loop => RunFor(loop, state, writeOutput, writeError, cancellationToken),
             CaseNode branch => RunCase(branch, state, writeOutput, writeError, cancellationToken),
-            SubshellNode subshell => Run(subshell.Body, state.Fork(), input, writeOutput, writeError, cancellationToken),
+            SelectNode menu => RunSelect(menu, state, input, writeOutput, writeError, cancellationToken),
+            FunctionDefinition definition => Define(definition, state),
+            ConditionNode condition => Drain(
+                InvokeCondition(condition, state, writeError, cancellationToken), writeOutput),
+            SubshellNode subshell => RunSubshell(subshell, state, input, writeOutput, writeError, cancellationToken),
             BraceGroupNode group => Run(group.Body, state, input, writeOutput, writeError, cancellationToken),
             SimpleCommand command => Drain(Invoke(command, state, input, writeError, cancellationToken), writeOutput),
             _ => Unsupported(node, writeError),
@@ -76,10 +128,41 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         return exitCode;
     }
 
+    private static int Define(FunctionDefinition definition, ShellState state)
+    {
+        state.Functions[definition.Name] = definition.Body;
+        return 0;
+    }
+
     private static int Unsupported(ShellNode node, Action<string> writeError)
     {
         writeError($"duetui-shell: {node.GetType().Name} is not supported yet\n");
         return 2;
+    }
+
+    private static int UnwindStatus(ShellState state) =>
+        state.RefusalRequested ? RefusedExitCode : state.ExitStatus;
+
+    // A subshell gets its own state so a cd inside it cannot leak out. A refusal is the one thing
+    // that must leak out: the host said no, and a parenthesised no is still a no.
+    private int RunSubshell(
+        SubshellNode subshell,
+        ShellState state,
+        IEnumerable<string> input,
+        Action<string> writeOutput,
+        Action<string> writeError,
+        CancellationToken cancellationToken)
+    {
+        ShellState nested = state.Fork();
+        int exitCode = Run(subshell.Body, nested, input, writeOutput, writeError, cancellationToken);
+
+        if (!nested.RefusalRequested)
+        {
+            return exitCode;
+        }
+
+        state.RequestRefusal(nested.RefusalReason!);
+        return RefusedExitCode;
     }
 
     private int RunSequence(
@@ -94,9 +177,9 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         {
             exitCode = Run(item, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
 
-            if (state.ExitRequested)
+            if (state.IsUnwinding)
             {
-                return state.ExitStatus;
+                return UnwindStatus(state);
             }
         }
 
@@ -112,9 +195,9 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     {
         int left = Run(andOr.Left, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
 
-        if (state.ExitRequested)
+        if (state.IsUnwinding)
         {
-            return state.ExitStatus;
+            return UnwindStatus(state);
         }
 
         bool runsRight = andOr.Kind == AndOrKind.And ? left == 0 : left != 0;
@@ -136,9 +219,20 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         for (int stage = 0; stage < pipeline.Stages.Count - 1; stage++)
         {
             flowing = StageOutput(pipeline.Stages[stage], state, flowing, writeError, cancellationToken);
+
+            if (state.IsUnwinding)
+            {
+                return UnwindStatus(state);
+            }
         }
 
         int exitCode = Run(pipeline.Stages[^1], state, flowing, writeOutput, writeError, cancellationToken);
+
+        if (state.IsUnwinding)
+        {
+            return UnwindStatus(state);
+        }
+
         return pipeline.Negated ? (exitCode == 0 ? 1 : 0) : exitCode;
     }
 
@@ -152,7 +246,14 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     {
         foreach (ConditionalBranch branch in conditional.Branches)
         {
-            if (Run(branch.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken) != 0)
+            int condition = Run(branch.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
+
+            if (state.IsUnwinding)
+            {
+                return UnwindStatus(state);
+            }
+
+            if (condition != 0)
             {
                 continue;
             }
@@ -176,9 +277,15 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     {
         int exitCode = 0;
 
-        while (!cancellationToken.IsCancellationRequested && !state.ExitRequested)
+        while (!cancellationToken.IsCancellationRequested && !state.IsUnwinding)
         {
             int condition = Run(loop.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
+
+            if (state.IsUnwinding)
+            {
+                return UnwindStatus(state);
+            }
+
             bool keepGoing = loop.UntilForm ? condition != 0 : condition == 0;
 
             if (!keepGoing)
@@ -189,7 +296,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             exitCode = Run(loop.Body, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
         }
 
-        return state.ExitRequested ? state.ExitStatus : exitCode;
+        return state.IsUnwinding ? UnwindStatus(state) : exitCode;
     }
 
     private int RunFor(
@@ -216,7 +323,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         int exitCode = 0;
         foreach (string item in items)
         {
-            if (cancellationToken.IsCancellationRequested || state.ExitRequested)
+            if (cancellationToken.IsCancellationRequested || state.IsUnwinding)
             {
                 break;
             }
@@ -225,7 +332,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             exitCode = Run(loop.Body, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
         }
 
-        return state.ExitRequested ? state.ExitStatus : exitCode;
+        return state.IsUnwinding ? UnwindStatus(state) : exitCode;
     }
 
     private int RunCase(
@@ -243,6 +350,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             return failureCode;
         }
 
+        if (state.IsUnwinding)
+        {
+            return UnwindStatus(state);
+        }
+
         string text = string.Concat(subject.Fields);
 
         foreach (CaseArm arm in branch.Arms)
@@ -252,6 +364,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
                 if (patternFailure != 0)
                 {
                     return patternFailure;
+                }
+
+                if (state.IsUnwinding)
+                {
+                    return UnwindStatus(state);
                 }
 
                 continue;
@@ -321,6 +438,36 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         return run.ExitCode;
     }
 
+    // Every operand is expanded as a value — no field splitting, no globbing — which is the whole
+    // difference between `[[ … ]]` and `[ … ]`, and then it goes through the same dispatch point so
+    // the host is asked about it like any other command.
+    private AppletRun InvokeCondition(
+        ConditionNode condition,
+        ShellState state,
+        Action<string> writeError,
+        CancellationToken cancellationToken)
+    {
+        WordExpander expander = new(state, source => Substitute(source, state, writeError, cancellationToken));
+        List<string> operands = [];
+
+        foreach (Word word in condition.Words)
+        {
+            ExpansionResult expanded = expander.ExpandValue(word);
+            if (!Report(expanded, writeError, out int failureCode))
+            {
+                return AppletRun.Failed(failureCode);
+            }
+
+            operands.Add(string.Concat(expanded.Fields));
+        }
+
+        IReadOnlyList<string> tail = [.. operands.Skip(1)];
+
+        return TryApprove("[[", tail, isOwned: true, state, cancellationToken)
+            ? Condition.Run(new AppletContext(tail, TextStream.Empty, state, writeError, cancellationToken))
+            : AppletRun.Failed(RefusedExitCode);
+    }
+
     private AppletRun Invoke(
         SimpleCommand command,
         ShellState state,
@@ -342,6 +489,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             return AppletRun.Failed(failure);
         }
 
+        if (state.RefusalRequested)
+        {
+            return AppletRun.Failed(RefusedExitCode);
+        }
+
         if (words.Count == 0)
         {
             return ApplyAssignments(command, expander, state, writeError);
@@ -357,11 +509,21 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         AppletRun run = RunOwnedOrExternal(
             name, arguments, effectiveInput, state, errorSink, cancellationToken);
 
+        // A refusal is the shell speaking, not the command, so it goes to the real stderr rather
+        // than through a `2>` the refused command never got to honour — and the redirection is left
+        // unapplied, so a denied `rm x > out` does not truncate `out` on its way out.
+        if (state.RefusalRequested)
+        {
+            writeError($"duetui-shell: {state.RefusalReason}\n");
+            return run;
+        }
+
         return ApplyOutputRedirection(run, plan, capturedErrors, state, writeError);
     }
 
-    // Bundled short flags are expanded for an owned applet, never for the native tier: a real
-    // program parses its own arguments and must receive them untouched.
+    // The single point every command passes through with its words already expanded, which is why
+    // the approval hook lives here and not in classification: this is the first place the shell
+    // knows what it is actually about to run.
     private AppletRun RunOwnedOrExternal(
         string name,
         IReadOnlyList<string> arguments,
@@ -370,18 +532,165 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         Action<string> errorSink,
         CancellationToken cancellationToken)
     {
-        if (applets.TryGet(name, out IApplet applet))
-        {
-            IReadOnlyList<string> expanded = FlagReader.ExpandShortFlagBundles(arguments, applet.BundleableFlags);
+        bool isFunction = state.Functions.ContainsKey(name);
+        OwnedCommand? owned = isFunction ? null : ResolveOwned(name, arguments);
 
-            if (applet.CheckFlags(expanded).IsSupported)
-            {
-                return applet.Run(new AppletContext(expanded, input, state, errorSink, cancellationToken));
-            }
+        if (!TryApprove(name, arguments, isFunction || owned is not null, state, cancellationToken))
+        {
+            return AppletRun.Failed(RefusedExitCode);
         }
 
-        return RunExternal(name, arguments, state, input, errorSink, cancellationToken);
+        if (isFunction)
+        {
+            return RunFunction(name, arguments, input, state, errorSink, cancellationToken);
+        }
+
+        return owned is { } command
+            ? command.Applet.Run(new AppletContext(command.Arguments, input, state, errorSink, cancellationToken))
+            : RunExternal(name, arguments, state, input, errorSink, cancellationToken);
     }
+
+    // A function runs against the caller's state — a cd inside one sticks, as it does in bash — with
+    // only the positional parameters swapped for the call's arguments. Its output is buffered rather
+    // than streamed, the same compromise a compound pipeline stage already makes: interleaving a
+    // running construct with its consumer would need coroutines.
+    private AppletRun RunFunction(
+        string name,
+        IReadOnlyList<string> arguments,
+        IEnumerable<string> input,
+        ShellState state,
+        Action<string> errorSink,
+        CancellationToken cancellationToken)
+    {
+        if (functionDepth >= MAX_FUNCTION_DEPTH)
+        {
+            errorSink($"duetui-shell: {name}: function nesting exceeded {MAX_FUNCTION_DEPTH}\n");
+            return AppletRun.Failed(2);
+        }
+
+        IReadOnlyList<string> caller = state.PositionalArguments;
+        List<string> collected = [];
+        state.SetPositionalArguments(arguments);
+        functionDepth++;
+
+        int exitCode = Run(state.Functions[name], state, input, collected.Add, errorSink, cancellationToken);
+
+        functionDepth--;
+        state.SetPositionalArguments(caller);
+
+        return new AppletRun { Output = collected, ExitCode = exitCode };
+    }
+
+    // A menu on stderr, a reply on stdin, and end of input ends it. Nothing here needs a process:
+    // the only reason `select` was refused is that it had not been written.
+    private int RunSelect(
+        SelectNode menu,
+        ShellState state,
+        IEnumerable<string> input,
+        Action<string> writeOutput,
+        Action<string> writeError,
+        CancellationToken cancellationToken)
+    {
+        WordExpander expander = new(state, source => Substitute(source, state, writeError, cancellationToken));
+        List<string> items = [];
+
+        foreach (Word item in menu.Items)
+        {
+            ExpansionResult expanded = expander.Expand(item);
+            if (!Report(expanded, writeError, out int failureCode))
+            {
+                return failureCode;
+            }
+
+            items.AddRange(expanded.Fields);
+        }
+
+        int exitCode = 0;
+        bool reachedEndOfInput = true;
+
+        foreach (string reply in TextStream.Lines(input))
+        {
+            if (cancellationToken.IsCancellationRequested || state.IsUnwinding)
+            {
+                reachedEndOfInput = false;
+                break;
+            }
+
+            WriteMenu(items, writeError);
+            state.Variables["REPLY"] = reply;
+            state.Variables[menu.Variable] = Chosen(items, reply);
+            exitCode = Run(menu.Body, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
+        }
+
+        // bash ends a select loop at end of input by writing a newline to stdout and returning 1,
+        // whatever the body last returned and whether or not anything was ever chosen. Both are
+        // observable, so both are reproduced.
+        if (reachedEndOfInput)
+        {
+            writeOutput("\n");
+            exitCode = 1;
+        }
+
+        return state.IsUnwinding ? UnwindStatus(state) : exitCode;
+    }
+
+    private static void WriteMenu(IReadOnlyList<string> items, Action<string> writeError)
+    {
+        for (int position = 0; position < items.Count; position++)
+        {
+            writeError($"{position + 1}) {items[position]}\n");
+        }
+    }
+
+    // An out-of-range or non-numeric reply leaves the variable empty, which is what bash does and
+    // what `if [ -z "$choice" ]` in every menu script is written to detect.
+    private static string Chosen(IReadOnlyList<string> items, string reply) =>
+        int.TryParse(reply, out int position) && position >= 1 && position <= items.Count
+            ? items[position - 1]
+            : string.Empty;
+
+    // Records the refusal as it answers, the way TryChangeDirectory reports its own failure: the
+    // reason is part of the answer, and the caller has nowhere else to get it.
+    private bool TryApprove(
+        string name,
+        IReadOnlyList<string> arguments,
+        bool isOwned,
+        ShellState state,
+        CancellationToken cancellationToken)
+    {
+        CommandApproval approval = approver.Approve(
+            name,
+            arguments,
+            CommandText.Of(name, arguments),
+            state.WorkingDirectory,
+            isOwned,
+            cancellationToken);
+
+        if (approval.IsAllowed)
+        {
+            return true;
+        }
+
+        state.RequestRefusal(approval.Reason ?? $"{name}: not approved");
+        return false;
+    }
+
+    // Bundled short flags are expanded for an owned applet, never for the native tier: a real
+    // program parses its own arguments and must receive them untouched. An applet that refuses a
+    // flag is not owning this invocation, so the answer is null and the native tier gets it.
+    private OwnedCommand? ResolveOwned(string name, IReadOnlyList<string> arguments)
+    {
+        if (!applets.TryGet(name, out IApplet applet))
+        {
+            return null;
+        }
+
+        IReadOnlyList<string> expanded = FlagReader.ExpandShortFlagBundles(arguments, applet.BundleableFlags);
+
+        return applet.CheckFlags(expanded).IsSupported ? new OwnedCommand(applet, expanded) : null;
+    }
+
+    private sealed record OwnedCommand(IApplet Applet, IReadOnlyList<string> Arguments);
 
     // 2>&1 folds the error text in after the command's own output rather than interleaving it. The
     // ordering differs from bash, which has two real file descriptors; the content does not.
@@ -727,6 +1036,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         if (result.Stderr.Length > 0)
         {
             writeError(result.Stderr);
+        }
+
+        if (nested.RefusalRequested)
+        {
+            state.RequestRefusal(nested.RefusalReason!);
         }
 
         state.LastExitCode = result.ExitCode;

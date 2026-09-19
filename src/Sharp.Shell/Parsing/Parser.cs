@@ -11,9 +11,16 @@ public static class Parser
     {
         LexResult lexed = Lexer.Tokenize(source);
 
-        return lexed.Error is not null
-            ? ParseResult.Unsupported(lexed.Error)
-            : new TokenParser(lexed.Tokens).Run();
+        if (lexed.Error is not null)
+        {
+            return new ParseResult(null, lexed.Error, lexed.IsIncomplete);
+        }
+
+        ParseResult parsed = new TokenParser(lexed.Tokens).Run();
+
+        // A here-document still waiting for its delimiter lexes and parses cleanly, so the lexer's
+        // answer has to survive a successful parse.
+        return lexed.IsIncomplete ? parsed with { IsIncomplete = true } : parsed;
     }
 }
 
@@ -26,10 +33,11 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
     private static readonly string[] ClosingKeywords =
         ["then", "elif", "else", "fi", "do", "done", "esac", "}", ";;"];
 
-    private static readonly string[] UnsupportedKeywords = ["select", "function"];
 
     private int index;
     private string? unsupported;
+    private bool incomplete;
+    private bool unsupportedConstruct;
 
     public ParseResult Run()
     {
@@ -37,7 +45,7 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
         if (unsupported is not null)
         {
-            return ParseResult.Unsupported(unsupported);
+            return new ParseResult(null, unsupported, incomplete, unsupportedConstruct);
         }
 
         return program is null
@@ -66,7 +74,7 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
             if (IsOperator("&"))
             {
-                return Reject("background execution (&) has no meaning without processes");
+                return RejectUnsupportedConstruct("background execution (&) has no meaning without processes");
             }
 
             if (Current.Kind != TokenKind.EndOfInput && !IsSeparator())
@@ -189,9 +197,24 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
             return ParseCase();
         }
 
-        if (UnsupportedKeywords.Any(IsReservedWord))
+        if (IsReservedWord("select"))
         {
-            return Reject($"'{Current.Word!.LiteralText}' is not supported yet");
+            return ParseSelect();
+        }
+
+        if (IsReservedWord("function"))
+        {
+            return ParseKeywordFunction();
+        }
+
+        if (IsReservedWord("[["))
+        {
+            return ParseCondition();
+        }
+
+        if (StartsAFunctionDefinition())
+        {
+            return ParseNamedFunction();
         }
 
         if (ClosingKeywords.Any(IsReservedWord))
@@ -222,7 +245,7 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
             if (IsOperator("<(") || IsOperator(">("))
             {
-                return Reject("process substitution has no meaning without processes");
+                return RejectUnsupportedConstruct("process substitution has no meaning without processes");
             }
 
             if (Current.Kind == TokenKind.Operator && TryReadRedirection(out Redirection? redirection))
@@ -239,9 +262,12 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
             break;
         }
 
+        // Nothing at all where a command should start. At the end of the input that is a line
+        // ending in `|` or `&&`, which wants another line; anywhere else it is a syntax error.
         if (words.Count == 0 && redirections.Count == 0 && assignments.Count == 0)
         {
-            return Reject($"unexpected '{Describe(Current)}'");
+            string reason = $"unexpected '{Describe(Current)}'";
+            return AtEndOfInput ? RejectIncomplete(reason) : Reject(reason);
         }
 
         return RejectProcessOnlyWords(words) ?? new SimpleCommand(assignments, words, redirections);
@@ -356,12 +382,12 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
             if (ProcessOnlyCommands.Contains(name))
             {
-                return Reject($"'{name}' has no meaning without processes");
+                return RejectUnsupportedConstruct($"'{name}' has no meaning without processes");
             }
 
             if (name == "exec" && words.Count > 1)
             {
-                return Reject("'exec' with a program has no meaning without processes");
+                return RejectUnsupportedConstruct("'exec' with a program has no meaning without processes");
             }
         }
 
@@ -369,7 +395,7 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
         {
             if (FindProcessOnlyParameter(word.Parts) is { } parameter)
             {
-                return Reject($"'{parameter}' has no meaning without processes");
+                return RejectUnsupportedConstruct($"'{parameter}' has no meaning without processes");
             }
         }
 
@@ -390,9 +416,9 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
                 continue;
             }
 
-            if (part.Text is "$" or "!" or "PPID")
+            if (part.Text == "PPID")
             {
-                return $"${part.Text}";
+                return "$PPID";
             }
         }
 
@@ -421,7 +447,17 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
             return true;
         }
 
-        Reject($"expected '{keyword}' but found '{Describe(Current)}'");
+        string reason = $"expected '{keyword}' but found '{Describe(Current)}'";
+
+        if (AtEndOfInput)
+        {
+            RejectIncomplete(reason);
+        }
+        else
+        {
+            Reject(reason);
+        }
+
         return false;
     }
 
@@ -444,7 +480,7 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
             if (IsOperator("&"))
             {
-                return Reject("background execution (&) has no meaning without processes");
+                return RejectUnsupportedConstruct("background execution (&) has no meaning without processes");
             }
 
             if (!IsSeparator() && !AtTerminator(terminators) && Current.Kind != TokenKind.EndOfInput)
@@ -473,7 +509,7 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
         if (!IsOperator(")"))
         {
-            return Reject("expected ')'");
+            return AtEndOfInput ? RejectIncomplete("expected ')'") : Reject("expected ')'");
         }
 
         index++;
@@ -610,9 +646,9 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
         while (!IsReservedWord("esac"))
         {
-            if (Current.Kind == TokenKind.EndOfInput)
+            if (AtEndOfInput)
             {
-                return Reject("expected 'esac'");
+                return RejectIncomplete("expected 'esac'");
             }
 
             CaseArm? arm = ParseCaseArm();
@@ -637,7 +673,17 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
         {
             if (Current.Kind != TokenKind.Word)
             {
-                Reject($"expected a case pattern but found '{Describe(Current)}'");
+                string reason = $"expected a case pattern but found '{Describe(Current)}'";
+
+                if (AtEndOfInput)
+                {
+                    RejectIncomplete(reason);
+                }
+                else
+                {
+                    Reject(reason);
+                }
+
                 return null;
             }
 
@@ -655,7 +701,15 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
 
         if (!IsOperator(")"))
         {
-            Reject("expected ')' after a case pattern");
+            if (AtEndOfInput)
+            {
+                RejectIncomplete("expected ')' after a case pattern");
+            }
+            else
+            {
+                Reject("expected ')' after a case pattern");
+            }
+
             return null;
         }
 
@@ -674,11 +728,186 @@ internal sealed class TokenParser(IReadOnlyList<Token> tokens)
         return new CaseArm(patterns, body);
     }
 
+    // `name ( )` — three tokens, because the lexer splits the parentheses off the name. Only a valid
+    // name qualifies, so `echo (` stays the syntax error it is.
+    private bool StartsAFunctionDefinition() =>
+        Current.Kind == TokenKind.Word
+        && Current.Word!.IsFullyLiteral
+        && IsName(Current.Word.LiteralText)
+        && index + 2 < tokens.Count
+        && tokens[index + 1] is { Kind: TokenKind.Operator, Text: "(" }
+        && tokens[index + 2] is { Kind: TokenKind.Operator, Text: ")" };
+
+    private ShellNode? ParseNamedFunction()
+    {
+        string name = Current.Word!.LiteralText;
+        index += 3;
+
+        return ParseFunctionBody(name);
+    }
+
+    // `function name { … }`, with the parentheses optional after the name.
+    private ShellNode? ParseKeywordFunction()
+    {
+        index++;
+
+        if (Current.Kind != TokenKind.Word || !Current.Word!.IsFullyLiteral || !IsName(Current.Word.LiteralText))
+        {
+            return Reject("expected a function name after 'function'");
+        }
+
+        string name = Current.Word.LiteralText;
+        index++;
+
+        if (index + 1 < tokens.Count
+            && tokens[index] is { Kind: TokenKind.Operator, Text: "(" }
+            && tokens[index + 1] is { Kind: TokenKind.Operator, Text: ")" })
+        {
+            index += 2;
+        }
+
+        return ParseFunctionBody(name);
+    }
+
+    private ShellNode? ParseFunctionBody(string name)
+    {
+        SkipSeparators();
+
+        if (IsReservedWord("{"))
+        {
+            ShellNode? body = ParseBraceGroup();
+            return body is null ? null : new FunctionDefinition(name, body);
+        }
+
+        if (IsOperator("("))
+        {
+            ShellNode? body = ParseSubshell();
+            return body is null ? null : new FunctionDefinition(name, body);
+        }
+
+        string missingBody = $"'{name}' needs a '{{ … }}' body";
+
+        return AtEndOfInput ? RejectIncomplete(missingBody) : Reject(missingBody);
+    }
+
+    // The operands are kept as words and expanded without splitting at run time, so `]]` closing the
+    // construct is the only thing this has to find. An operator between them — `&&`, `||`, `(` — is
+    // taken as a literal operand, because inside [[ ]] that is what it is.
+    private ShellNode? ParseCondition()
+    {
+        List<Word> words = [Current.Word!];
+        index++;
+        int depth = 0;
+
+        while (!ClosesCondition())
+        {
+            if (AtEndOfInput)
+            {
+                return RejectIncomplete("expected ']]'");
+            }
+
+            // A newline inside [[ ]] separates nothing: the construct runs until its terminator,
+            // and bash keeps reading until it arrives.
+            if (Current.Kind == TokenKind.Newline)
+            {
+                index++;
+                continue;
+            }
+
+            if (Current.Kind == TokenKind.Operator)
+            {
+                depth += Current.Text == "(" ? 1 : Current.Text == ")" ? -1 : 0;
+
+                if (depth < 0)
+                {
+                    return Reject("unexpected ')' in a [[ ]] condition");
+                }
+            }
+
+            words.Add(Current.Kind == TokenKind.Word
+                ? Current.Word!
+                : new Word([new WordPart(WordPartKind.Literal, Current.Text)]));
+            index++;
+        }
+
+        if (depth > 0)
+        {
+            return Reject("expected ')' in a [[ ]] condition");
+        }
+
+        words.Add(Current.Word!);
+        index++;
+
+        return new ConditionNode(words);
+    }
+
+    // Only bare `]]` closes the construct. `[[ -z ']]' ]]` asks whether the two characters are an
+    // empty string, and a quoted operand that happens to spell the terminator is an operand.
+    private bool ClosesCondition() =>
+        Current.Kind == TokenKind.Word
+        && Current.Word!.Parts is [{ Kind: WordPartKind.Literal, Text: "]]" }];
+
+    private ShellNode? ParseSelect()
+    {
+        index++;
+
+        if (Current.Kind != TokenKind.Word || !Current.Word!.IsFullyLiteral)
+        {
+            return Reject("expected a variable name after 'select'");
+        }
+
+        string variable = Current.Word.LiteralText;
+        index++;
+
+        List<Word> items = [];
+        if (TakeReservedWord("in"))
+        {
+            while (Current.Kind == TokenKind.Word && !IsReservedWord("do"))
+            {
+                items.Add(Current.Word!);
+                index++;
+            }
+        }
+
+        SkipSeparators();
+        if (!ExpectReservedWord("do"))
+        {
+            return null;
+        }
+
+        ShellNode? body = ParseCompoundList("done");
+        if (body is null)
+        {
+            return null;
+        }
+
+        return ExpectReservedWord("done") ? new SelectNode(variable, items, body) : null;
+    }
+
     private ShellNode? Reject(string reason)
     {
         unsupported ??= reason;
         return null;
     }
+
+    // A failure more input could fix: an unclosed construct rather than a wrong one. Marked at the
+    // sites that know the difference, never inferred from where the tokens ran out — `trap 'x' EXIT`
+    // also ends the input, and no amount of further input makes it something this shell can run.
+    private ShellNode? RejectIncomplete(string reason)
+    {
+        incomplete |= unsupported is null;
+        return Reject(reason);
+    }
+
+    // Valid bash this shell does not implement, as opposed to input bash would refuse too. The
+    // line is handed to a real shell rather than being an error, so a script does not stop at it.
+    private ShellNode? RejectUnsupportedConstruct(string reason)
+    {
+        unsupportedConstruct |= unsupported is null;
+        return Reject(reason);
+    }
+
+    private bool AtEndOfInput => Current.Kind == TokenKind.EndOfInput;
 
     private static string Describe(Token token) => token.Kind switch
     {

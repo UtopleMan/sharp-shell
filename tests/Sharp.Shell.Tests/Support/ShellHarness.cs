@@ -8,15 +8,18 @@ internal sealed class ShellHarness : IDisposable
 {
     private readonly List<IApplet> extraApplets = [];
 
-    public ShellHarness(ICommandExecutor? external = null)
+    public ShellHarness(ICommandExecutor? external = null, ICommandApprover? approver = null)
     {
         Root = Directory.CreateTempSubdirectory("duetui-shell").FullName;
         External = external ?? new NotSupportedCommandExecutor();
+        Approver = approver ?? new AllowAllCommandApprover();
     }
 
     public string Root { get; }
 
     public ICommandExecutor External { get; }
+
+    public ICommandApprover Approver { get; }
 
     public void Add(IApplet applet) => extraApplets.Add(applet);
 
@@ -42,7 +45,7 @@ internal sealed class ShellHarness : IDisposable
         Executor().Run(commandLine, new ShellState(Root), CancellationToken.None);
 
     private ShellExecutor Executor() =>
-        new(new AppletRegistry([.. AppletRegistry.CreateDefault().Applets, .. extraApplets]), External);
+        new(new AppletRegistry([.. AppletRegistry.CreateDefault().Applets, .. extraApplets]), External, Approver);
 
     public void Dispose() => Directory.Delete(Root, recursive: true);
 }

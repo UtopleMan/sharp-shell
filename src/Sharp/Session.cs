@@ -11,7 +11,8 @@ namespace Sharp;
 // gets a fresh ShellState. A tool call is a one-shot; a shell is a conversation, so `cd` sticks.
 internal sealed class Session
 {
-    private readonly ShellExecutor executor = new(AppletRegistry.CreateDefault(), new NotSupportedCommandExecutor());
+    private readonly ShellExecutor executor;
+    private readonly ExplainingCommandApprover? explaining;
     private readonly ShellState state;
     private readonly SessionSettings settings;
     private readonly TextWriter output;
@@ -29,6 +30,12 @@ internal sealed class Session
         this.output = output;
         this.error = error;
         state = new ShellState(settings.Root);
+
+        explaining = settings.Explains ? new ExplainingCommandApprover(Policy(settings)) : null;
+        executor = new ShellExecutor(
+            AppletRegistry.CreateDefault(),
+            settings.Strict ? new NotSupportedCommandExecutor() : new NativeTier(),
+            explaining ?? Policy(settings));
 
         if (!state.TryChangeDirectory(settings.StartDirectory, out string failure))
         {
@@ -49,35 +56,24 @@ internal sealed class Session
             return state.LastExitCode;
         }
 
+        explaining?.Forget();
+
         ShellRun run = executor.Run(line, state, cancellationToken);
         Explain(run.Classification);
 
-        if (run.Result is { } result)
-        {
-            output.Write(result.Stdout);
-            error.Write(result.Stderr);
-            state.LastExitCode = result.ExitCode;
+        output.Write(run.Result.Stdout);
+        error.Write(run.Result.Stderr);
+        state.LastExitCode = run.Result.ExitCode;
 
-            return result.ExitCode;
-        }
-
-        // Nothing ran: classification said this line belongs to a real shell.
-        //
-        // In strict mode there is no real shell to hand it to. That is what makes this binary
-        // testable: with the fall-through enabled, a corpus case using an unimplemented construct
-        // would be answered by bash and score as a pass, measuring nothing. Strict mode is also
-        // exactly the configuration the sandboxed guest runs in, where no process can be started
-        // at all.
-        if (settings.Strict)
-        {
-            error.WriteLine($"sharp: {run.Classification.Reason ?? "not an owned command"}");
-            state.LastExitCode = 127;
-            return state.LastExitCode;
-        }
-
-        state.LastExitCode = NativeTier.Run(line, state.WorkingDirectory);
-        return state.LastExitCode;
+        return run.Result.ExitCode;
     }
+
+    // Strict mode is the sandboxed guest's configuration: no process can be started, so an unowned
+    // name is refused at the dispatch point rather than escaped to. It is also what makes this
+    // binary testable — with the fall-through on, a corpus case using an unimplemented construct
+    // would be answered by a real shell and score as a pass, measuring nothing.
+    private static ICommandApprover Policy(SessionSettings settings) =>
+        settings.Strict ? new OwnedOnlyCommandApprover() : new AllowAllCommandApprover();
 
     private void Explain(Classification classification)
     {
@@ -94,5 +90,10 @@ internal sealed class Session
         string reason = classification.Reason is null ? string.Empty : $" — {classification.Reason}";
 
         error.WriteLine($"[{tier}{programs}{mutates}]{reason}");
+
+        foreach (string decision in explaining!.Decisions)
+        {
+            error.WriteLine(decision);
+        }
     }
 }

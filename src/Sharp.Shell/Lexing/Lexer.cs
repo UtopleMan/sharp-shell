@@ -36,6 +36,10 @@ internal sealed class LexScanner(string source)
     private string? error;
     private int awaitingDelimiterFor = -1;
     private bool awaitingStripsTabs;
+    // Set where the input stops in the middle of something: a here-document whose delimiter never
+    // arrived, or a backslash-newline with nothing after it. Neither is an error — both are one
+    // line short.
+    private bool isIncomplete;
 
     public LexResult Run()
     {
@@ -52,7 +56,7 @@ internal sealed class LexScanner(string source)
         FlushWord();
         CaptureHereDocuments();
         tokens.Add(new Token(TokenKind.EndOfInput, string.Empty, null, index));
-        return new LexResult(tokens, null);
+        return new LexResult(tokens, null, isIncomplete);
     }
 
     public IReadOnlyList<WordPart> RunExpandableText()
@@ -249,6 +253,13 @@ internal sealed class LexScanner(string source)
 
         char escaped = source[index + 1];
         index += 2;
+
+        if (escaped == '\n')
+        {
+            // A line continuation joins this line to the next one. With nothing after it there is
+            // no next line yet, so the input is one line short rather than finished.
+            isIncomplete = index >= source.Length;
+        }
 
         if (escaped != '\n')
         {
@@ -594,6 +605,11 @@ internal sealed class LexScanner(string source)
 
             body.Append(content).Append('\n');
         }
+
+        // The delimiter never arrived. What was read stands as the body — a here-document is data,
+        // not a command — but the input is one line short of complete, and a reader feeding a
+        // script needs to know that rather than run the body as commands.
+        isIncomplete = true;
 
         return body.ToString();
     }

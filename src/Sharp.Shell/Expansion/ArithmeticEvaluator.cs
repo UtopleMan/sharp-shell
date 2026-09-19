@@ -1,17 +1,19 @@
+using Sharp.Shell.Execution;
+
 namespace Sharp.Shell.Expansion;
 
 // Integer arithmetic for $((...)). Recursive descent over the operators bash uses most; anything
 // else is refused by name rather than guessed at.
 public static class ArithmeticEvaluator
 {
-    public static bool TryEvaluate(string expression, IReadOnlyDictionary<string, string> variables, out long value, out string error)
+    public static bool TryEvaluate(string expression, ShellState state, out long value, out string error)
     {
-        ArithmeticParser parser = new(expression, variables);
+        ArithmeticParser parser = new(expression, state);
         return parser.TryRun(out value, out error);
     }
 }
 
-internal sealed class ArithmeticParser(string expression, IReadOnlyDictionary<string, string> variables)
+internal sealed class ArithmeticParser(string expression, ShellState state)
 {
     private int index;
     private string? failure;
@@ -266,6 +268,23 @@ internal sealed class ArithmeticParser(string expression, IReadOnlyDictionary<st
             return 0;
         }
 
-        return variables.TryGetValue(name, out string? text) && long.TryParse(text, out long value) ? value : 0;
+        return ValueOf(name);
+    }
+
+    // $1 inside $(( )) is the first positional parameter, not a variable called "1" — which is the
+    // only reason `add() { echo $(($1 + $2)); }` gives an answer rather than zero.
+    private long ValueOf(string name) =>
+        long.TryParse(TextOf(name), out long value) ? value : 0;
+
+    private string TextOf(string name)
+    {
+        if (name.All(char.IsAsciiDigit) && int.TryParse(name, out int position))
+        {
+            return position >= 1 && position <= state.PositionalArguments.Count
+                ? state.PositionalArguments[position - 1]
+                : string.Empty;
+        }
+
+        return state.Variables.TryGetValue(name, out string? text) ? text : string.Empty;
     }
 }
