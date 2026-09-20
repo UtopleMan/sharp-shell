@@ -45,7 +45,16 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     // this shell cannot run at all goes out whole, and it goes out through the same seam, because
     // the shell is the only thing that ever asks for a process. Execute is internal precisely so no
     // other assembly can reach execution without passing through here.
-    public ShellRun Run(string commandLine, ShellState state, CancellationToken cancellationToken)
+    public ShellRun Run(string commandLine, ShellState state, CancellationToken cancellationToken) =>
+        Run(commandLine, state, TextStream.Empty, cancellationToken);
+
+    // The same way in for a caller that has a stdin to hand over: a host that runs a script body
+    // through this shell has to be able to pass on the pipe the script was reading from.
+    public ShellRun Run(
+        string commandLine,
+        ShellState state,
+        IEnumerable<string> input,
+        CancellationToken cancellationToken)
     {
         state.BeginRun();
         Classification classification = classifier.Classify(commandLine, state);
@@ -53,7 +62,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         return new ShellRun(
             classification,
             classification.IsRunnable
-                ? Execute(commandLine, state, cancellationToken)
+                ? RunText(commandLine, state, input, cancellationToken)
                 : RunWholeLine(commandLine, classification, state, cancellationToken));
     }
 
@@ -91,15 +100,29 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         return new ShellResult(execution.ExitCode, output, execution.Error);
     }
 
-    internal ShellResult Execute(string commandLine, ShellState state, CancellationToken cancellationToken)
+    internal ShellResult Execute(string commandLine, ShellState state, CancellationToken cancellationToken) =>
+        Execute(commandLine, state, TextStream.Empty, cancellationToken);
+
+    internal ShellResult Execute(
+        string commandLine,
+        ShellState state,
+        IEnumerable<string> input,
+        CancellationToken cancellationToken)
     {
         state.BeginRun();
-        return RunText(commandLine, state, cancellationToken);
+        return RunText(commandLine, state, input, cancellationToken);
     }
 
     // The same work without beginning a run, which is what `source` needs: a file's commands belong to
     // the run that sourced it, so an exit inside one ends that run rather than the file.
-    private ShellResult RunText(string commandLine, ShellState state, CancellationToken cancellationToken)
+    private ShellResult RunText(string commandLine, ShellState state, CancellationToken cancellationToken) =>
+        RunText(commandLine, state, TextStream.Empty, cancellationToken);
+
+    private ShellResult RunText(
+        string commandLine,
+        ShellState state,
+        IEnumerable<string> input,
+        CancellationToken cancellationToken)
     {
         ParseResult parsed = Parser.Parse(commandLine);
         StringBuilder standardOutput = new();
@@ -114,7 +137,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         int exitCode = Run(
             parsed.Program!,
             state,
-            TextStream.Empty,
+            input,
             chunk => standardOutput.Append(chunk),
             text => standardError.Append(text),
             cancellationToken);
