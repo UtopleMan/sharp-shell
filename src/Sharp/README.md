@@ -1,4 +1,4 @@
-# sharp
+# shsh
 
 `Sharp.Shell` as a runnable shell. Commands the shell owns are C# function calls inside this
 process — no `fork`, no `exec`, no `PATH`. Anything it does not own is started as a real program,
@@ -7,16 +7,16 @@ handed to your real shell as the original string.
 
 ```
 dotnet build src/Sharp/Sharp.csproj
-src/Sharp/bin/Debug/net10.0/sharp
+src/Sharp/bin/Debug/net10.0/shsh
 ```
 
 ## Usage
 
 ```
-sharp                       interactive
-sharp -c "echo hi"          one command
-sharp script.sh             run a file
-echo "echo hi" | sharp      read from a pipe
+shsh                       interactive
+shsh -c "echo hi"          one command
+shsh script.sh             run a file
+echo "echo hi" | shsh      read from a pipe
 
 --root <dir>   confine the shell to <dir>: every path above it is refused, which is the rule the
                sandboxed tool tier runs under. Without it the shell is unconfined, like any shell.
@@ -30,7 +30,7 @@ echo "echo hi" | sharp      read from a pipe
 
 ## Scripts
 
-A command is not always a line, so `sharp script.sh` and `echo … | sharp` read lines until the
+A command is not always a line, so `shsh script.sh` and `echo … | shsh` read lines until the
 command is whole: a function body, a multi-line `if`, a here-document and a trailing `\` or `|` all
 continue onto the next line. Interactively, the continuation prompt is `> `.
 
@@ -51,12 +51,12 @@ The first line classifies the line; the indented ones are the decisions, one per
 order the shell dispatched them.
 
 ```
-$ sharp --explain -c 'ls src | head -3'
+$ shsh --explain -c 'ls src | head -3'
 [owned]
   owned ls src
   owned head -3
 
-$ sharp --explain --strict -c 'echo hi; git status'
+$ shsh --explain --strict -c 'echo hi; git status'
 [native git] — 'git' is not one of the sandboxed commands
   owned echo hi
   native git status — refused: 'git' is not one of the sandboxed commands

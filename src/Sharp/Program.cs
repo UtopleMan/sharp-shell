@@ -1,11 +1,11 @@
 using Sharp;
 
-// sharp — the Sharp.Shell language as a runnable shell.
+// shsh — the Sharp.Shell language as a runnable shell.
 //
-//   sharp                       interactive
-//   sharp -c "echo hi"          one command
-//   sharp script.sh             run a file
-//   echo "echo hi" | sharp      read from a pipe
+//   shsh                        interactive
+//   shsh -c "echo hi"           one command
+//   shsh script.sh              run a file
+//   echo "echo hi" | shsh       read from a pipe
 //
 //   --root <dir>   confine the shell to <dir>, refusing every path above it. This is the sandboxed
 //                  tool tier's own rule, made available here so it can be tried directly.
@@ -23,7 +23,7 @@ internal static class Program
 
         if (options.Error is { } error)
         {
-            Console.Error.WriteLine($"sharp: {error}");
+            Console.Error.WriteLine($"shsh: {error}");
             return 2;
         }
 
@@ -54,7 +54,7 @@ internal static class Program
     // the next thing typed is a fresh start.
     private static int ReportSyntaxError(string reason)
     {
-        Console.Error.WriteLine($"sharp: {reason}");
+        Console.Error.WriteLine($"shsh: {reason}");
         return 2;
     }
 
@@ -65,7 +65,7 @@ internal static class Program
 
         if (interactive)
         {
-            Console.Error.WriteLine($"sharp — {options.Root}");
+            Console.Error.WriteLine($"shsh — {options.Root}");
             Console.Error.WriteLine("owned commands run in-process; anything else is handed to your real shell.");
         }
 

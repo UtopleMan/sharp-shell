@@ -4,7 +4,7 @@ namespace Sharp.Shell.Tests.BlackBox;
 
 public sealed record SharpResult(string Stdout, string Stderr, int ExitCode);
 
-// Locates and drives the built sharp executable. Everything here goes through the real process
+// Locates and drives the built shsh executable. Everything here goes through the real process
 // boundary — argv, stdio encoding, exit status — which is the whole point: the library tests prove
 // the shell, and these prove the binary exposes it faithfully.
 public static class SharpBinary
@@ -60,7 +60,7 @@ public static class SharpBinary
 
     private static string? Locate()
     {
-        string executable = OperatingSystem.IsWindows() ? "sharp.exe" : "sharp";
+        string executable = OperatingSystem.IsWindows() ? "shsh.exe" : "shsh";
 
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {

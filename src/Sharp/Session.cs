@@ -39,7 +39,7 @@ internal sealed class Session
 
         if (!state.TryChangeDirectory(settings.StartDirectory, out string failure))
         {
-            error.WriteLine($"sharp: {failure}");
+            error.WriteLine($"shsh: {failure}");
         }
     }
 

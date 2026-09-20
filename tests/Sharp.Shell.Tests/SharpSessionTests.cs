@@ -149,7 +149,7 @@ public class SharpSessionTests : IDisposable
             output,
             errors);
 
-        Assert.StartsWith("sharp: ", errors.ToString(), StringComparison.Ordinal);
+        Assert.StartsWith("shsh: ", errors.ToString(), StringComparison.Ordinal);
         Assert.Equal(root, session.WorkingDirectory);
     }
 

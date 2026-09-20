@@ -17,8 +17,8 @@ fully expanded, so iteration three of a loop asks about `rm build/c.cs`, not abo
 | Project | What it is |
 |---|---|
 | `src/Sharp.Shell` | The language core: lexer, parser, word expansion, executor, and the owned command set (`grep`, `sed`, `awk`, `cat`, `ls`, `find`, `wc`, `sort`, …). Zero package references, no `System.Diagnostics.Process`, no threads, no reflection — so it compiles into a trimmed, NativeAOT WASI-P2 guest. |
-| `src/Sharp` | `sharp`, the same shell as a runnable binary. Try the language, or see exactly which commands a sandboxed tool tier would run itself. See [its README](src/Sharp/README.md). |
-| `tests/Sharp.Shell.Tests` | In-process tests, black-box tests through the `sharp` binary, differential tests against real `bash`/`sed`/`awk`, and the vendored oils spec corpus with a two-way ratchet on expected failures. |
+| `src/Sharp` | `shsh`, the same shell as a runnable binary. Try the language, or see exactly which commands a sandboxed tool tier would run itself. See [its README](src/Sharp/README.md). |
+| `tests/Sharp.Shell.Tests` | In-process tests, black-box tests through the `shsh` binary, differential tests against real `bash`/`sed`/`awk`, and the vendored oils spec corpus with a two-way ratchet on expected failures. |
 
 ## Build and test
 
@@ -45,11 +45,11 @@ commands come from whichever machine runs the suite, so it still needs a real `b
 
 `Sharp.Shell` enforces two rules the embedding host relies on:
 
-- **Rule 1 — the root.** With a root set, every path above it is refused. `sharp --root <dir>` is
+- **Rule 1 — the root.** With a root set, every path above it is refused. `shsh --root <dir>` is
   that rule at the command line.
 - **Rule 2 — ask before every dispatch.** The shell runs the line and asks about each command
   before dispatching it, owned applet and real program alike. A line it cannot run at all is handed
-  over whole, as one decision. `sharp --strict` supplies an approver that refuses every unowned
+  over whole, as one decision. `shsh --strict` supplies an approver that refuses every unowned
   name, which is the configuration a sandboxed guest runs under and the only honest one to measure
   against.
 

@@ -12,7 +12,7 @@ internal sealed record Options(
     string? Error)
 {
     public const string Usage =
-        "usage: sharp [--root <dir>] [--explain] [--strict] [-c <command> | <script>]";
+        "usage: shsh [--root <dir>] [--explain] [--strict] [-c <command> | <script>]";
 
     public SessionSettings Settings => new(Root, StartDirectory, Explains, Strict);
 
