@@ -76,6 +76,36 @@ and `yourtool | head -2` both stream, and a consumer that stops enumerating stop
 That is this shell's SIGPIPE, and an executor that reads its child to the end before returning
 throws it away.
 
+`ExitCode` and `Error` are therefore **read when the stream ends, not when `Execute` returns**. An
+executor that streams cannot know either up front — the child has not finished writing — so it sets
+them from inside its own iterator:
+
+```csharp
+CommandExecution execution = new(true, 0, TextStream.Empty, string.Empty);
+execution.Output = Stream(execution);
+return execution;
+
+IEnumerable<string> Stream(CommandExecution execution)
+{
+    try
+    {
+        while (Reading(out string chunk))
+        {
+            yield return chunk;
+        }
+    }
+    finally
+    {
+        execution.ExitCode = child.ExitCode;
+        execution.Error = collectedStderr;
+    }
+}
+```
+
+The `finally` is the part that matters: a consumer that stops early still ends the child and still
+reports how it ended. An executor that has both values up front — one that ran the child to
+completion — sets them in the constructor and is read the same way.
+
 ## Be fail-closed
 
 Ship `DenyingCommandApprover` and `NotSupportedCommandExecutor` until the real ones work, and make

@@ -4,9 +4,22 @@ namespace Sharp.Shell;
 
 // What one external program run produced. IsSupported is false when this executor cannot run
 // programs at all, which is the guest's answer and the reason the shell never needs fork or exec.
-public sealed record CommandExecution(bool IsSupported, int ExitCode, IEnumerable<string> Output, string Error)
+//
+// Output is enumerated lazily by whoever consumes it, so ExitCode and Error are only final once it
+// has been drained — the same contract AppletRun has, and for the same reason. An executor that
+// streams cannot know how its child ended before the child has finished writing, and waiting for
+// that up front is what throws the stream away.
+public sealed class CommandExecution(bool isSupported, int exitCode, IEnumerable<string> output, string error)
 {
-    public static CommandExecution NotSupported { get; } = new(false, 127, TextStream.Empty, string.Empty);
+    public bool IsSupported { get; } = isSupported;
+
+    public IEnumerable<string> Output { get; set; } = output;
+
+    public int ExitCode { get; set; } = exitCode;
+
+    public string Error { get; set; } = error;
+
+    public static CommandExecution NotSupported => new(false, 127, TextStream.Empty, string.Empty);
 }
 
 // The process seam, and the only way a process is ever started. Nothing reaches it except through
