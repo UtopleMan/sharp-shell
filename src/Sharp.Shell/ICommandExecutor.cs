@@ -19,6 +19,12 @@ public sealed class CommandExecution(bool isSupported, int exitCode, IEnumerable
 
     public string Error { get; set; } = error;
 
+    // Why the run must unwind, when this executor is itself something that asks. An executor that
+    // dispatches to another shell — a script body, approved one command at a time — has to be able
+    // to report a denial as a denial: a non-zero exit code alone would leave `denied || fallback`
+    // free to route around an answer that was already given.
+    public string? RefusalReason { get; set; }
+
     public static CommandExecution NotSupported => new(false, 127, TextStream.Empty, string.Empty);
 }
 

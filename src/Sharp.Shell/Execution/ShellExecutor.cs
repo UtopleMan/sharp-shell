@@ -1140,7 +1140,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         }
 
         AppletRun run = new() { ExitCode = execution.ExitCode };
-        run.Output = Relay(execution, run, writeError);
+        run.Output = Relay(execution, run, state, writeError);
 
         return run;
     }
@@ -1149,7 +1149,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     // stderr are taken when the stream ends rather than when the executor returned. The finally is
     // the point: a consumer that stops early — `native-thing | head -2` — still ends the producer
     // and still gets the answer, which is what makes an executor free to stream.
-    private static IEnumerable<string> Relay(CommandExecution execution, AppletRun run, Action<string> writeError)
+    private static IEnumerable<string> Relay(
+        CommandExecution execution,
+        AppletRun run,
+        ShellState state,
+        Action<string> writeError)
     {
         try
         {
@@ -1161,6 +1165,15 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         finally
         {
             run.ExitCode = execution.ExitCode;
+
+            // A refusal is known here for the same reason the exit code is: an executor that asks
+            // about the commands it dispatches cannot know it was told no until it has got that far.
+            // It unwinds the run exactly as an in-process refusal does — the reason is already on
+            // the executor's stderr, so it is not written twice.
+            if (execution.RefusalReason is { } refusal)
+            {
+                state.RequestRefusal(refusal);
+            }
 
             if (execution.Error.Length > 0)
             {
