@@ -15,6 +15,9 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Sharp.Shell/Sharp.Shell.csproj" />
     <ProjectReference Include="../../src/Sharp/Sharp.csproj" />
+    <!-- The pseudo-terminal harness, vendored at vendor/test-pty. Test-only, and deliberately not
+         in Sharp.slnx: a solution entry would pull vendored code into dotnet format. -->
+    <ProjectReference Include="../../vendor/test-pty/src/TestPty/TestPty.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The vendored oils spec corpus and our deviations list. Test-only: nothing under src/
