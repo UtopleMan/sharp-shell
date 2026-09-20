@@ -127,7 +127,7 @@ public class NativeFallThroughTests
         ShellResult result = harness.Classified("git status &").Result;
 
         Assert.Equal(127, result.ExitCode);
-        Assert.StartsWith("duetui-shell: ", result.Stderr, StringComparison.Ordinal);
+        Assert.StartsWith("test-shell: ", result.Stderr, StringComparison.Ordinal);
     }
 
     [Fact]

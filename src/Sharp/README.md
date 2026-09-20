@@ -26,7 +26,61 @@ echo "echo hi" | shsh      read from a pipe
                refusal have already run. This is the sandboxed guest's configuration, and the one
                to test against — with real programs available, they answer and the result measures
                nothing.
+--norc         skip ~/.shshenv and ~/.shshrc, for tests and for debugging a config that breaks the
+               shell.
 ```
+
+## Start-up files
+
+Two files, read from `$HOME` in this order:
+
+| File | When |
+|---|---|
+| `~/.shshenv` | **Every** start — `-c`, a script, a pipe, interactive — before anything else runs. |
+| `~/.shshrc` | Only when the shell is interactive, after `~/.shshenv`. |
+
+That is the zsh split, and the reason there are two: a `-c` line and a script want the environment,
+not the aliases and the prompt. Put `export`s and `PATH` in `~/.shshenv`; put `alias`, `setopt`, `PS1`
+in `~/.shshrc`.
+
+A **missing file is silence**. A file with a **syntax error is reported with its name and the shell
+still starts** — an unusable shell is worse than a broken alias:
+
+```
+$ shsh -c 'echo still-here'
+shsh: .shshenv: unterminated single quote
+still-here
+```
+
+`--norc` skips both. An `exit` in either is honoured before the command the shell was started for.
+
+These files run **this shell's language**, which is bash's with the gaps this README describes. A
+`.zshrc` or a `.bashrc` is not a `.shshrc`: `shopt -s expand_aliases` is not an option here, because
+aliases always expand, and an option this shell does not implement is an error rather than a flag that
+silently does nothing.
+
+## The prompt
+
+`PS1` and `PS2` replace the defaults when set — otherwise the prompt is the working directory
+relative to the root followed by `$ `, and the continuation prompt is `> `.
+
+| Escape | Is |
+|---|---|
+| `\w` | the working directory, with `$HOME` written as `~` |
+| `\W` | its last component |
+| `\?` | the last command's exit status |
+| `\$` | a literal `$` |
+| `\\` | a literal backslash |
+
+```
+PS1='\w \$ '        →  ~/notes $
+PS1='[\?] \W% '     →  [0] notes%
+```
+
+Every other escape bash defines — `\h`, `\u`, `\t`, `\!`, the colour sequences — is **not
+implemented, and is left exactly as it was typed** rather than approximated. A hostname nobody looked
+up would be a lie; a visible `\h` is a question. `\?` is this shell's own: bash has no escape for the
+exit status.
 
 ## Scripts
 
@@ -84,6 +138,9 @@ stops the line, but it cannot undo what ran ahead of it.
 - `SharpCorpusTests` — the vendored oils spec corpus, which upstream runs against `bash`, `dash`
   and `mksh` the same way. Every case that passes in-process **and** classifies `Owned` must also
   pass through the binary.
+- `SharpRcFileTests` — the start-up files, with `HOME` pointed at a temp directory. Every other
+  black-box run passes `--norc`, so a `~/.shshenv` on the machine running the suite cannot change
+  what the tests measure.
 
 The `Owned` filter keeps the comparison to cases whose behaviour cannot depend on what is installed
 on the machine running the suite. A case naming `git` would otherwise measure the local `git`.

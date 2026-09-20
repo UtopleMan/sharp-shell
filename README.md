@@ -78,16 +78,23 @@ Both live in `src/Sharp.Shell`, beside each other, and both are consulted by `Sh
 | Seam | The shell asks |
 |---|---|
 | `ICommandApprover` | *May this run?* `Approve` for one command, with `program`, `arguments`, a canonical `commandText`, the working directory, and whether the shell is about to run its own applet. `ApproveLine` for a line the shell cannot run itself, which is the coarse case: nobody can say what the commands in it are, so the line is the target. |
-| `ICommandExecutor` | *Run this.* `Execute` for one unowned command, with its arguments already expanded. `ExecuteLine` for a line the shell cannot run itself. |
+| `ICommandExecutor` | *Run this.* `Execute` for one unowned command, with its arguments already expanded. `ExecuteLine` for a line the shell cannot run itself. Both carry the shell's exported variables as the environment offered to the child. |
 
 **Be fail-closed.** `DenyingCommandApprover` and `NotSupportedCommandExecutor` are the shipped
 fail-closed implementations; `AllowAllCommandApprover` is the default so that embedding the library
 without plugging anything in behaves as it did before the seam existed. `ApproveLine` has no default
 implementation on purpose — gating one request and forgetting the other should not compile.
 
-A denied command exits `126`, writes `duetui-shell: <reason>` to stderr, and unwinds the run:
+A denied command exits `126`, writes `<shell name>: <reason>` to stderr, and unwinds the run:
 `denied || fallback` does **not** run `fallback`. `ShellResult.RefusalReason` reports it without
 anyone having to parse stderr.
+
+**The environment is data the host supplies, not something the core reads.** The compile constraints
+are unchanged: `Sharp.Shell` never enumerates the operating system's environment, never reads `~`,
+and never assumes a terminal. It is handed an environment when `ShellState` is constructed — `shsh`
+from the real process environment, a wasm guest from whatever its host passed it — and it decides
+which variables are offered to a child. What a child actually receives is the host's decision, made
+in its `ICommandExecutor`.
 
 See [docs/host-integration.md](docs/host-integration.md) for what a host has to implement.
 

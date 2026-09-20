@@ -15,6 +15,7 @@ using Sharp;
 //                  reason.
 //                  This is the sandboxed guest's configuration, and the one to test against: with
 //                  the fall-through on, your real shell answers and the result measures nothing.
+//   --norc         skip ~/.shshenv and ~/.shshrc, for tests and for debugging a broken config.
 internal static class Program
 {
     private static int Main(string[] arguments)
@@ -23,11 +24,22 @@ internal static class Program
 
         if (options.Error is { } error)
         {
-            Console.Error.WriteLine($"shsh: {error}");
+            Console.Error.WriteLine($"{Session.SHELL_NAME}: {error}");
             return 2;
         }
 
         Session session = new(options.Settings, Console.Out, Console.Error);
+        bool interactive = options.Command is null && options.ScriptPath is null && !Console.IsInputRedirected;
+
+        // ~/.shshenv runs before anything else, interactive or not. A file that asks to exit is
+        // honoured before the command it was meant to prepare for.
+        session.LoadStartupFiles(interactive);
+
+        if (session.WantsExit)
+        {
+            return session.ExitStatus;
+        }
+
         using Interrupts interrupts = new();
 
         // Ctrl+C stops the running command and abandons the line being typed, as a shell does,
@@ -41,7 +53,7 @@ internal static class Program
 
         return options.Command is { } command
             ? RunOneCommand(session, command, interrupts)
-            : RunLines(session, options, interrupts);
+            : RunLines(session, options, interactive, interrupts);
     }
 
     private static int RunOneCommand(Session session, string command, Interrupts interrupts) =>
@@ -54,18 +66,17 @@ internal static class Program
     // the next thing typed is a fresh start.
     private static int ReportSyntaxError(string reason)
     {
-        Console.Error.WriteLine($"shsh: {reason}");
+        Console.Error.WriteLine($"{Session.SHELL_NAME}: {reason}");
         return 2;
     }
 
-    private static int RunLines(Session session, Options options, Interrupts interrupts)
+    private static int RunLines(Session session, Options options, bool interactive, Interrupts interrupts)
     {
         using TextReader reader = options.ScriptPath is { } path ? new StreamReader(path) : Console.In;
-        bool interactive = options.ScriptPath is null && !Console.IsInputRedirected;
 
         if (interactive)
         {
-            Console.Error.WriteLine($"shsh — {options.Root}");
+            Console.Error.WriteLine($"{Session.SHELL_NAME} — {options.Root}");
             Console.Error.WriteLine("owned commands run in-process; anything else is handed to your real shell.");
         }
 
@@ -76,7 +87,7 @@ internal static class Program
         {
             if (interactive)
             {
-                Console.Write(commands.IsContinuing ? "> " : $"{Prompt(session, options.Root)}$ ");
+                Console.Write(commands.IsContinuing ? session.ContinuationPrompt : session.Prompt);
             }
 
             if (reader.ReadLine() is not { } line)
@@ -134,9 +145,4 @@ internal static class Program
         }
     }
 
-    private static string Prompt(Session session, string root)
-    {
-        string relative = Path.GetRelativePath(root, session.WorkingDirectory);
-        return relative == "." ? Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)) : relative;
-    }
 }

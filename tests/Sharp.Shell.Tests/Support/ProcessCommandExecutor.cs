@@ -18,10 +18,11 @@ internal sealed class ProcessCommandExecutor : ICommandExecutor
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken)
     {
-        if (SpecHelpers.TryRun(program, arguments, out CommandExecution helper))
+        if (SpecHelpers.TryRun(program, arguments, environment, out CommandExecution helper))
         {
             return helper;
         }
@@ -42,6 +43,13 @@ internal sealed class ProcessCommandExecutor : ICommandExecutor
         foreach (string argument in arguments)
         {
             process.StartInfo.ArgumentList.Add(argument);
+        }
+
+        process.StartInfo.Environment.Clear();
+
+        foreach (KeyValuePair<string, string> variable in environment)
+        {
+            process.StartInfo.Environment[variable.Key] = variable.Value;
         }
 
         try
@@ -83,7 +91,11 @@ internal sealed class ProcessCommandExecutor : ICommandExecutor
 // dependency on this suite, so they are reimplemented here instead — they are trivial.
 public static class SpecHelpers
 {
-    public static bool TryRun(string program, IReadOnlyList<string> arguments, out CommandExecution execution)
+    public static bool TryRun(
+        string program,
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string> environment,
+        out CommandExecution execution)
     {
         execution = CommandExecution.NotSupported;
 
@@ -94,7 +106,7 @@ public static class SpecHelpers
                 return true;
             case "printenv.py":
                 execution = Ok(string.Concat(arguments.Select(name =>
-                    $"{Environment.GetEnvironmentVariable(name) ?? "None"}\n")));
+                    $"{(environment.TryGetValue(name, out string? value) ? value : "None")}\n")));
                 return true;
             default:
                 return false;

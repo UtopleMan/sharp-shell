@@ -182,12 +182,11 @@ public class AwkBuiltinTests
         Assert.Equal("system()", support.UnsupportedFlag);
 
         List<string> errors = [];
-        AppletRun run = new AwkApplet("awk").Run(new AppletContext(
+        AppletRun run = new AwkApplet("awk").Run(AppletContexts.For(
             ["BEGIN {system(\"ls\")}"],
             TextStream.Empty,
             new ShellState(Path.GetTempPath()),
-            errors.Add,
-            CancellationToken.None));
+            errors.Add));
 
         Assert.Equal(2, run.ExitCode);
         Assert.Contains("unsupported construct: system()", string.Concat(errors), StringComparison.Ordinal);

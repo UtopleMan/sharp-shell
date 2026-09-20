@@ -25,6 +25,64 @@ public class ShellBuiltinTests
     }
 
     [Fact]
+    public void CdDashReturnsToThePreviousDirectoryAndPrintsIt()
+    {
+        using ShellHarness harness = new();
+        harness.Write("sub/f.txt", "");
+
+        Assert.Equal($"{harness.Root}\n{harness.Root}\n", harness.Run("cd sub; cd -; pwd").Stdout);
+    }
+
+    [Fact]
+    public void CdDashWithNothingToReturnToIsAnError()
+    {
+        using ShellHarness harness = new();
+
+        ShellResult result = harness.Run("cd -");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("OLDPWD not set", result.Stderr, StringComparison.Ordinal);
+    }
+
+    // bash prints the directory it landed in whenever the target came from CDPATH rather than from
+    // the working directory, because the one you get is not the one you typed.
+    [Fact]
+    public void CdFindsARelativeTargetThroughCdPath()
+    {
+        using ShellHarness harness = new();
+        harness.Write("base/target/f.txt", "");
+        string target = Path.Combine(harness.Root, "base", "target");
+
+        Assert.Equal($"{target}\n{target}\n", harness.Run($"CDPATH={Path.Combine(harness.Root, "base")}; cd target; pwd").Stdout);
+    }
+
+    // Verified against the real bash: CDPATH is searched first, so the target you get is the one on
+    // the path and not the one in the working directory.
+    [Fact]
+    public void CdPrefersCdPathOverTheWorkingDirectory()
+    {
+        using ShellHarness harness = new();
+        harness.Write("target/here.txt", "");
+        harness.Write("base/target/elsewhere.txt", "");
+        string onThePath = Path.Combine(harness.Root, "base", "target");
+
+        string output = harness.Run($"CDPATH={Path.Combine(harness.Root, "base")}; cd target; pwd").Stdout;
+
+        Assert.Equal($"{onThePath}\n{onThePath}\n", output);
+    }
+
+    [Fact]
+    public void CdIgnoresCdPathForADotRelativeTarget()
+    {
+        using ShellHarness harness = new();
+        harness.Write("base/target/f.txt", "");
+
+        ShellResult result = harness.Run($"CDPATH={Path.Combine(harness.Root, "base")}; cd ./target");
+
+        Assert.NotEqual(0, result.ExitCode);
+    }
+
+    [Fact]
     public void CdRefusesToLeaveTheWorkspace()
     {
         using ShellHarness harness = new();

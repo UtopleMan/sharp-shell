@@ -19,12 +19,17 @@ public sealed record CommandExecution(bool IsSupported, int ExitCode, IEnumerabl
 // at all — one that will not parse, or that needs the process model the guest has no threads for —
 // and is the coarse case: nobody can say what the commands in it are, so it is approved as one
 // target or not at all.
+//
+// Both carry the shell's exported variables. The shell decides *what* is offered to a child; what a
+// child actually receives is the host's decision, and filtering it belongs here rather than in the
+// shell.
 public interface ICommandExecutor
 {
     CommandExecution Execute(
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken);
 
@@ -34,6 +39,7 @@ public interface ICommandExecutor
     CommandExecution ExecuteLine(
         string commandLine,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         CancellationToken cancellationToken) => CommandExecution.NotSupported;
 }
 
@@ -43,6 +49,7 @@ public sealed class NotSupportedCommandExecutor : ICommandExecutor
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken) => CommandExecution.NotSupported;
 }

@@ -9,7 +9,7 @@ namespace Sharp.Shell.Expansion;
 // glob-special. That is why the lexer kept the quoting structure instead of resolving it.
 public sealed class WordExpander(ShellState state, Func<string, CommandSubstitution> runSubstitution)
 {
-    private const string FieldSeparators = " \t\n";
+    private const string DEFAULT_FIELD_SEPARATORS = " \t\n";
 
     // Command words and arguments: expanded, split, then globbed.
     public ExpansionResult Expand(Word word) => Build(word, splitAndGlob: true);
@@ -30,10 +30,15 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
             }
         }
 
-        List<Field> fields = Split(fragments, splitAndGlob);
+        List<Field> fields = Split(fragments, splitAndGlob, Separators);
 
         return ExpansionResult.Ok(splitAndGlob ? Globbed(fields) : [.. fields.Select(field => field.Text)]);
     }
+
+    // IFS decides what a field boundary is. An unset IFS means the default; an empty IFS disables
+    // splitting altogether, which is the property a script relies on when it wants one field back.
+    private string Separators =>
+        state.Variables.TryGetValue("IFS", out string separators) ? separators : DEFAULT_FIELD_SEPARATORS;
 
     private ExpansionResult? AddFragments(WordPart part, bool quoted, List<Fragment> fragments)
     {
@@ -65,7 +70,7 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
                 return null;
 
             case WordPartKind.Tilde:
-                fragments.Add(new Fragment(state.RootPath + part.Text, false, false));
+                fragments.Add(new Fragment(Home, false, false));
                 return null;
 
             case WordPartKind.Arithmetic:
@@ -80,6 +85,11 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
                 return AddParameter(part, quoted, fragments);
         }
     }
+
+    // Without a HOME there is nowhere to go but the root, which is the one directory the shell is
+    // certain of. The core never reads the operating system's idea of a home directory.
+    private string Home =>
+        state.Variables.TryGetValue("HOME", out string home) && home.Length > 0 ? home : state.RootPath;
 
     private ExpansionResult? AddArithmetic(WordPart part, bool quoted, List<Fragment> fragments)
     {
@@ -103,7 +113,7 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
 
         if (resolved.ErrorMessage is not null)
         {
-            return ExpansionResult.Failed(resolved.ErrorMessage);
+            return ExpansionResult.Failed(resolved.ErrorMessage, resolved.IsFatal);
         }
 
         fragments.Add(new Fragment(resolved.Value, !quoted, !quoted));
@@ -130,46 +140,16 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
         return string.Join(' ', pieces);
     }
 
-    private static List<Field> Split(List<Fragment> fragments, bool splitAndGlob)
+    private static List<Field> Split(List<Fragment> fragments, bool splitAndGlob, string separators)
     {
-        List<Field> fields = [];
-        Field current = new();
+        FieldSplitter splitter = new(separators);
 
         foreach (Fragment fragment in fragments)
         {
-            if (!splitAndGlob || !fragment.Splittable)
-            {
-                current.Append(fragment.Text, fragment.Globbable);
-                continue;
-            }
-
-            AppendSplit(fragment, fields, ref current);
+            splitter.Append(fragment, splitting: splitAndGlob && fragment.Splittable && separators.Length > 0);
         }
 
-        if (current.HasContent)
-        {
-            fields.Add(current);
-        }
-
-        return fields;
-    }
-
-    private static void AppendSplit(Fragment fragment, List<Field> fields, ref Field current)
-    {
-        foreach (char character in fragment.Text)
-        {
-            if (!FieldSeparators.Contains(character, StringComparison.Ordinal))
-            {
-                current.Append(character, fragment.Globbable);
-                continue;
-            }
-
-            if (current.HasContent)
-            {
-                fields.Add(current);
-                current = new Field();
-            }
-        }
+        return splitter.Finish();
     }
 
     private IReadOnlyList<string> Globbed(List<Field> fields)
@@ -192,6 +172,95 @@ public sealed class WordExpander(ShellState state, Func<string, CommandSubstitut
     }
 
     private readonly record struct Fragment(string Text, bool Splittable, bool Globbable);
+
+    // POSIX field splitting, which treats the two kinds of separator differently. A run of IFS
+    // whitespace is one boundary and a run at either end is ignored; a non-whitespace separator is a
+    // boundary every time it appears, so `a::b` with IFS=: has an empty field in the middle. One rule
+    // for both kinds gets one of them wrong.
+    private sealed class FieldSplitter(string separators)
+    {
+        private readonly List<Field> fields = [];
+
+        private Field current = new();
+
+        private bool inSeparatorRun;
+
+        private bool runHasNonWhitespace;
+
+        public void Append(Fragment fragment, bool splitting)
+        {
+            if (!splitting)
+            {
+                inSeparatorRun = false;
+                current.Append(fragment.Text, fragment.Globbable);
+                return;
+            }
+
+            foreach (char character in fragment.Text)
+            {
+                Take(character, fragment.Globbable);
+            }
+        }
+
+        public List<Field> Finish()
+        {
+            if (current.HasContent)
+            {
+                fields.Add(current);
+            }
+
+            return fields;
+        }
+
+        private void Take(char character, bool globbable)
+        {
+            if (!separators.Contains(character, StringComparison.Ordinal))
+            {
+                inSeparatorRun = false;
+                current.Append(character, globbable);
+                return;
+            }
+
+            Separate(IsWhitespace(character));
+        }
+
+        private void Separate(bool isWhitespace)
+        {
+            if (!inSeparatorRun)
+            {
+                StartRun(isWhitespace);
+                return;
+            }
+
+            if (isWhitespace || !runHasNonWhitespace)
+            {
+                runHasNonWhitespace |= !isWhitespace;
+                return;
+            }
+
+            fields.Add(new Field());
+        }
+
+        private void StartRun(bool isWhitespace)
+        {
+            inSeparatorRun = true;
+            runHasNonWhitespace = !isWhitespace;
+
+            if (current.HasContent)
+            {
+                fields.Add(current);
+                current = new Field();
+                return;
+            }
+
+            if (!isWhitespace)
+            {
+                fields.Add(new Field());
+            }
+        }
+
+        private static bool IsWhitespace(char separator) => separator is ' ' or '\t' or '\n';
+    }
 
     // A field under construction, carrying which of its characters came from unquoted text. Only
     // those may act as glob wildcards; the quoted ones are escaped into the pattern.

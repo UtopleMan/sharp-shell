@@ -3,13 +3,21 @@ using Sharp.Shell.Execution;
 
 namespace Sharp.Shell.Expansion;
 
-public sealed record ParameterResult(string Value, string? UnsupportedReason, string? ErrorMessage)
+public sealed record ParameterResult(
+    string Value,
+    string? UnsupportedReason,
+    string? ErrorMessage,
+    bool IsFatal = false)
 {
     public static ParameterResult Ok(string value) => new(value, null, null);
 
     public static ParameterResult Unsupported(string reason) => new(string.Empty, reason, null);
 
     public static ParameterResult Failed(string message) => new(string.Empty, null, message);
+
+    // nounset does not fail a command, it stops the run.
+    public static ParameterResult Unbound(string variable) =>
+        new(string.Empty, null, $"{variable}: unbound variable", IsFatal: true);
 }
 
 // The inside of a $name or ${...}. Every form bash offers that this shell does not implement is
@@ -46,8 +54,20 @@ public static class ParameterExpander
         string remainder = expression[nameLength..];
 
         return remainder.Length == 0
-            ? ParameterResult.Ok(Lookup(state, variable))
+            ? Value(variable, state)
             : ApplyOperator(variable, remainder, state, expandWord, expression);
+    }
+
+    // A bare reference is the only form nounset speaks for. The ${x-word} forms exist to ask whether
+    // a variable is set, which is the one thing nounset must not break.
+    private static ParameterResult Value(string variable, ShellState state)
+    {
+        if (state.Variables.TryGetValue(variable, out string value))
+        {
+            return ParameterResult.Ok(value);
+        }
+
+        return state.Options.NoUnset ? ParameterResult.Unbound(variable) : ParameterResult.Ok(string.Empty);
     }
 
     private static bool TryExpandSpecial(string expression, ShellState state, out ParameterResult? result)
@@ -56,7 +76,7 @@ public static class ParameterExpander
         {
             "?" => ParameterResult.Ok(state.LastExitCode.ToString()),
             "#" => ParameterResult.Ok(state.PositionalArguments.Count.ToString()),
-            "0" => ParameterResult.Ok("duetui-shell"),
+            "0" => ParameterResult.Ok(state.ShellName),
             "$" => ParameterResult.Ok(SyntheticProcessId),
             "!" => ParameterResult.Ok(string.Empty),
             "@" or "*" => AllPositional(state),

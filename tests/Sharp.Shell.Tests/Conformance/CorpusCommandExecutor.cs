@@ -13,9 +13,10 @@ internal sealed class CorpusCommandExecutor : ICommandExecutor
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken) =>
-        SpecHelpers.TryRun(program, arguments, out CommandExecution execution)
+        SpecHelpers.TryRun(program, arguments, environment, out CommandExecution execution)
             ? execution
             : CommandExecution.NotSupported;
 }

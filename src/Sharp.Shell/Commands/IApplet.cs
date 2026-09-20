@@ -11,12 +11,16 @@ public sealed record FlagSupport(bool IsSupported, string? UnsupportedFlag)
     public static FlagSupport Reject(string flag) => new(false, flag);
 }
 
+// RunShellText is how `source` runs a file against the state it was called with. The executor supplies
+// it because the executor is the only thing that can run shell text, and it does not begin a new run:
+// an exit or a refusal inside a sourced file unwinds the line that sourced it.
 public sealed record AppletContext(
     IReadOnlyList<string> Arguments,
     IEnumerable<string> Input,
     ShellState State,
     Action<string> WriteError,
-    CancellationToken CancellationToken);
+    CancellationToken CancellationToken,
+    Func<string, ShellResult> RunShellText);
 
 // Output is enumerated lazily by whoever consumes it, so ExitCode is only final once the
 // enumeration has been drained. An applet that reports a per-operand failure mid-stream needs the

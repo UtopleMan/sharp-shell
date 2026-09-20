@@ -1,5 +1,6 @@
 using Sharp.Shell.Commands;
 using Sharp.Shell.Execution;
+using Sharp.Shell.Tests.Support;
 using Xunit;
 
 namespace Sharp.Shell.Tests.Differential;
@@ -161,12 +162,11 @@ public class SedDifferentialTests(ITestOutputHelper output)
 
     private static (string Stdout, int ExitCode) RunOurs(SedCase sedCase, string root)
     {
-        AppletRun run = new SedApplet().Run(new AppletContext(
+        AppletRun run = new SedApplet().Run(AppletContexts.For(
             sedCase.Arguments,
             TextStream.FromText(sedCase.Input),
             new ShellState(root),
-            _ => { },
-            CancellationToken.None));
+            _ => { }));
 
         string stdout = TextStream.Collect(run.Output);
         return (stdout, run.ExitCode);

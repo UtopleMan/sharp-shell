@@ -13,6 +13,7 @@ internal sealed class StreamingCommandExecutor : ICommandExecutor
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken) =>
         new(true, 0, Echo(input), string.Empty);

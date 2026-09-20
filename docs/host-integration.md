@@ -57,12 +57,14 @@ CommandExecution Execute(
     string program,
     IReadOnlyList<string> arguments,
     string workingDirectory,
+    IReadOnlyDictionary<string, string> environment,
     IEnumerable<string> input,
     CancellationToken cancellationToken);
 
 CommandExecution ExecuteLine(
     string commandLine,
     string workingDirectory,
+    IReadOnlyDictionary<string, string> environment,
     CancellationToken cancellationToken);
 ```
 
@@ -70,6 +72,16 @@ CommandExecution ExecuteLine(
 the shell cannot run at all. `ExecuteLine` is defaulted to `CommandExecution.NotSupported`, so an
 executor that can only run programs — a wasm guest, a test double — inherits the right answer
 without writing it.
+
+**`environment` is part of the request, and filtering it is your job.** It is the shell's exported
+variables — what `export` marked, plus whatever environment you handed `ShellState` — and nothing
+else: a plain `x=1` assignment is not in it. The shell decides *what* is offered to a child; you
+decide what the child actually receives, which is the natural place for the decision because you are
+already the one starting it. Pass it straight through, filter it to an allowlist, or ignore it — but
+ignoring it means `export FOO=bar; yourtool` cannot see `FOO`.
+
+> **Contract change in v0.3.0.** Both methods gained the parameter, with no compatibility overload.
+> An executor written against v0.2 will not compile until it takes the environment.
 
 `Output` is an `IEnumerable<string>` and the shell never materializes it: `cat huge.log | yourtool`
 and `yourtool | head -2` both stream, and a consumer that stops enumerating stops the producer.
@@ -92,7 +104,7 @@ it.
 ## What a denial does
 
 A denied command exits **126** — "found but not executable", distinct from the 127 an unknown
-command returns — writes `duetui-shell: <reason>` to stderr, and **unwinds the run**. `denied ||
+command returns — writes `<shell name>: <reason>` to stderr, and **unwinds the run**. `denied ||
 fallback` does not run `fallback`; a refusal in a loop body stops the loop; a refusal inside `$( )`
 refuses the outer line. `ShellResult.RefusalReason` is non-null exactly when this happened, so a
 host tells consent from failure without parsing stderr.
@@ -104,6 +116,23 @@ host tells consent from failure without parsing stderr.
 > dist; git push` refused at `git push` still wrote `log` and still deleted `dist`.
 >
 > If a line must be all-or-nothing, decide before calling `Run`, not during.
+
+## The shell's name is yours to supply
+
+`ShellState` takes the name this shell answers to:
+
+```csharp
+ShellState state = new(root, workingDirectory: null, shellName: "my-shell");
+```
+
+It is what `$0` expands to, and it is the prefix on **every message the shell writes about itself** —
+a refusal, a command not found, an unsupported construct, a redirection that could not be opened. A
+host that supplies nothing gets `sharp-shell`, this library's own name.
+
+> **Contract change in v0.3.0.** Messages used to be prefixed with the literal `duetui-shell:`
+> regardless of the host. If you match on stderr — in tests, in a log parser — match on the name you
+> supplied. `ShellResult.RefusalReason` carries a refusal's reason without the prefix, and is the
+> thing to read rather than stderr.
 
 ## The target is post-expansion
 
@@ -135,6 +164,25 @@ a bare `bool` precisely so it has room to grow; until it does, the host owns the
 - Scope an "always" answer to the `Run` call, or to the session, but say which in the dialog.
 - Answer from the cache synchronously. `Approve` is on the shell's only thread; every millisecond
   spent there is a millisecond the loop is not running.
+
+## Seeding the environment
+
+`ShellState` takes the environment it starts with. The core reads nothing from the operating system
+— that is what keeps it compiling into a trimmed NativeAOT WASI-P2 guest — so every value it holds
+arrived from a host:
+
+```csharp
+ShellState state = new(root, workingDirectory, shellName, environment);
+```
+
+Every entry arrives **exported**, because that is what an inherited variable is, and re-assigning one
+keeps it exported the way bash does. `shsh` seeds this from `Environment.GetEnvironmentVariables()`.
+A guest should seed it from whatever the host passed it — under duetui, the `wasi:cli/environment`
+values that `WasiOptions.Environment` supplied. Nothing in this shell ever makes a guest inherit the
+host's own environment.
+
+`$PWD` is the case worth naming: a host that supplies it gets an expanding `$PWD`, and one that does
+not gets an empty one, because the shell does not invent it.
 
 ## If the shell is inside a wasm guest
 

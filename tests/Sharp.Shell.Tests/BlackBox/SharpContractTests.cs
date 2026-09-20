@@ -171,6 +171,44 @@ public sealed class SharpContractTests : IDisposable
         Assert.Equal($"kept\n{Path.Combine(root, "sub")}\n", result.Stdout);
     }
 
+    // The binary inherits the real process environment, which is what makes it a shell rather than a
+    // demo. --root confines the filesystem, not the environment.
+    [Fact]
+    public void The_shell_expands_a_variable_it_inherited()
+    {
+        Assert.Equal($"{Environment.GetEnvironmentVariable("HOME")}\n", Run("echo $HOME").Stdout);
+    }
+
+    [Fact]
+    public void An_exported_variable_reaches_a_child_process()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "printenv is not a Windows program");
+
+        Assert.Equal("bar\n", Run("export FOO=bar; printenv FOO").Stdout);
+    }
+
+    [Fact]
+    public void An_unexported_variable_does_not_reach_a_child_process()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "printenv is not a Windows program");
+
+        Assert.Equal("absent\n", Run("BAZ=local; printenv BAZ || echo absent").Stdout);
+    }
+
+    [Fact]
+    public void The_binary_answers_to_its_own_name()
+    {
+        Assert.Equal("shsh\n", Run("echo $0").Stdout);
+    }
+
+    [Fact]
+    public void A_refusal_is_prefixed_with_the_binary_name()
+    {
+        SharpResult result = Run("git status", "--strict");
+
+        Assert.StartsWith("shsh: ", result.Stderr, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Strict_mode_refuses_to_leave_the_owned_command_set()
     {

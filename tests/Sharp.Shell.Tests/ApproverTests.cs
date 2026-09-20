@@ -115,7 +115,7 @@ public class ApproverTests
 
         Assert.True(File.Exists(target));
         Assert.Equal(126, result.ExitCode);
-        Assert.Equal("duetui-shell: rm: refused by the host\n", result.Stderr);
+        Assert.Equal("test-shell: rm: refused by the host\n", result.Stderr);
     }
 
     [Fact]
@@ -141,6 +141,6 @@ public class ApproverTests
 
         Assert.True(File.Exists(target));
         Assert.Equal(126, result.ExitCode);
-        Assert.Equal("duetui-shell: rm: not approved\n", result.Stderr);
+        Assert.Equal("test-shell: rm: not approved\n", result.Stderr);
     }
 }

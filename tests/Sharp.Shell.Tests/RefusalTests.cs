@@ -152,7 +152,7 @@ public class RefusalTests
 
         ShellResult result = harness.Run("rm keep.txt");
 
-        Assert.Equal("duetui-shell: rm: refused by the host\n", result.Stderr);
+        Assert.Equal("test-shell: rm: refused by the host\n", result.Stderr);
     }
 
     // The contract change, asserted rather than described: what ran before the refusal stays run.

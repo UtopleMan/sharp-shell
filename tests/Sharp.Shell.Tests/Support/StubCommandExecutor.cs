@@ -8,6 +8,7 @@ internal sealed class StubCommandExecutor(string output, int exitCode) : IComman
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken) =>
         new(true, exitCode, TextStream.FromText(output), string.Empty);

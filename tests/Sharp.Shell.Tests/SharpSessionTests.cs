@@ -99,7 +99,21 @@ public class SharpSessionTests : IDisposable
 
         Assert.Equal(126, status);
         Assert.Equal(string.Empty, output.ToString());
-        Assert.Equal("duetui-shell: 'git' is not one of the sandboxed commands\n", errors.ToString());
+        Assert.Equal("shsh: 'git' is not one of the sandboxed commands\n", errors.ToString());
+    }
+
+    // The unwind is per line. Without this a session that refused one command went silently dead:
+    // every later line expanded its words, saw the refusal still set, and ran nothing.
+    [Fact]
+    public void ARefusalDoesNotSilenceTheRestOfTheSession()
+    {
+        Session session = Confined();
+        session.Run("git status", CancellationToken.None);
+
+        int status = session.Run("echo after", CancellationToken.None);
+
+        Assert.Equal(0, status);
+        Assert.EndsWith("after\n", output.ToString(), StringComparison.Ordinal);
     }
 
     // The cost of deciding at run time: the commands ahead of the refusal have already run.

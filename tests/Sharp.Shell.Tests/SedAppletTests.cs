@@ -322,12 +322,11 @@ public class SedAppletTests
         using ShellHarness harness = new();
         System.Text.StringBuilder errors = new();
 
-        AppletRun run = new SedApplet().Run(new AppletContext(
+        AppletRun run = new SedApplet().Run(AppletContexts.For(
             arguments,
             TextStream.FromText("a\n"),
             new ShellState(harness.Root),
-            text => errors.Append(text),
-            CancellationToken.None));
+            text => errors.Append(text)));
 
         Assert.Equal(2, run.ExitCode);
         Assert.StartsWith(expected, errors.ToString(), StringComparison.Ordinal);

@@ -71,6 +71,53 @@ public static class LanguageCorpus
         "echo $(echo nested)",
         "echo \"quoted $(echo sub)\"",
         "v=\"a  b\"; echo $v",
+
+        // IFS is a variable, so these pin the two kinds of separator against the real thing: runs of
+        // whitespace collapse, a non-whitespace separator delimits every time it appears, and an empty
+        // IFS stops splitting altogether. Absolute paths are deliberately absent from every case here
+        // — the oracle and this shell run in different temp roots, so nothing that prints one can
+        // ratchet.
+        "IFS=:; x=a:b:c; for i in $x; do echo $i; done",
+        "IFS=:; x='a b'; for i in $x; do echo \"[$i]\"; done",
+        "IFS=:; x=a::b; for i in $x; do echo \"[$i]\"; done",
+        "IFS=:; x=:a; for i in $x; do echo \"[$i]\"; done",
+        "IFS=:; x=a:; for i in $x; do echo \"[$i]\"; done",
+        "IFS=:; x=:; for i in $x; do echo \"[$i]\"; done",
+        "IFS=; v='a b'; for i in $v; do echo \"[$i]\"; done",
+        "IFS=' :'; x='a  :b'; for i in $x; do echo \"[$i]\"; done",
+        "HOME=/home/me; echo ~",
+        "HOME=/home/me; echo ~/notes",
+
+        // The execution options, which change what a line does rather than what a word means. The
+        // exemptions are the interesting half: a command whose failure is being *tested* is not a
+        // command errexit is about.
+        "set -e; false; echo never",
+        "set -e; false && echo x; echo after",
+        "set -e; true && false; echo after",
+        "set -e; if false; then echo t; fi; echo after",
+        "set -e; while false; do echo body; done; echo after",
+        "set -e; ! false; echo after",
+        "set -e; ! true; echo after",
+        "set -u; echo $nope; echo after",
+        "set -u; echo ${nope-fallback}",
+        "set -u; x=1; echo $x",
+        "set -o pipefail; false | true; echo $?",
+        "set -o pipefail; true | false; echo $?",
+        "false | true; echo $?",
+        "set -e; echo $(echo one; false; echo two)",
+
+        // Aliases, in the shape bash needs to expand them at all: non-interactive bash wants
+        // `shopt -s expand_aliases` *and* the definition on an earlier line, because it expands at parse
+        // time. This shell always expands and has no such option, so the `|| true` carries the oracle and
+        // this shell through the same three lines. Anything printing an absolute path is deliberately
+        // absent — the two sides run in different temp roots — which is why the directory stack is
+        // counted rather than printed.
+        "shopt -s expand_aliases || true\nalias greet='echo hello'\ngreet",
+        "shopt -s expand_aliases || true\nalias greet='echo hello'\ngreet there",
+        "shopt -s expand_aliases || true\nalias greet='echo hello'\necho greet",
+        "shopt -s expand_aliases || true\nalias ll='echo listed'\nll; ll",
+        "mkdir -p a; pushd a > junk; for d in $(dirs); do echo x; done",
+        "mkdir -p a; pushd a > junk; popd > junk; for d in $(dirs); do echo x; done",
         "v=\"a  b\"; echo \"$v\"",
         "echo 'single $notexpanded'",
         "echo \"double ${x:-d}\"",

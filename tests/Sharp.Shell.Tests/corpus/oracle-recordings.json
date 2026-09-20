@@ -2753,6 +2753,146 @@
         "--norc",
         "--noprofile",
         "-c",
+        "HOME=/home/me; echo ~"
+      ],
+      "input": "",
+      "stdout": "/home/me\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "HOME=/home/me; echo ~/notes"
+      ],
+      "input": "",
+      "stdout": "/home/me/notes\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=\u0027 :\u0027; x=\u0027a  :b\u0027; for i in $x; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[a]\n[b]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=:; x=\u0027a b\u0027; for i in $x; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[a b]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=:; x=:; for i in $x; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=:; x=:a; for i in $x; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[]\n[a]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=:; x=a::b; for i in $x; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[a]\n[]\n[b]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=:; x=a:; for i in $x; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[a]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=:; x=a:b:c; for i in $x; do echo $i; done"
+      ],
+      "input": "",
+      "stdout": "a\nb\nc\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "IFS=; v=\u0027a b\u0027; for i in $v; do echo \u0022[$i]\u0022; done"
+      ],
+      "input": "",
+      "stdout": "[a b]\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
         "[ -z \u0027\u0027 ]; echo $?"
       ],
       "input": "",
@@ -3552,6 +3692,20 @@
         "--noprofile",
         "-c",
         "f=notes.cs; [[ $f == *.cs ]]; echo $?"
+      ],
+      "input": "",
+      "stdout": "0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "false | true; echo $?"
       ],
       "input": "",
       "stdout": "0\n",
@@ -4453,6 +4607,34 @@
       "stdout": "",
       "stderr": "ls: pylint/lint: No such file or directory\n",
       "exitCode": 1,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "mkdir -p a; pushd a \u003E junk; for d in $(dirs); do echo x; done"
+      ],
+      "input": "",
+      "stdout": "x\nx\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "mkdir -p a; pushd a \u003E junk; popd \u003E junk; for d in $(dirs); do echo x; done"
+      ],
+      "input": "",
+      "stdout": "x\n",
+      "stderr": "",
+      "exitCode": 0,
       "unstable": false
     },
     {
@@ -5713,6 +5895,244 @@
       "stdout": "",
       "stderr": "sed: seaborn/_core/scales.py: No such file or directory\n",
       "exitCode": 1,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; ! false; echo after"
+      ],
+      "input": "",
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; ! true; echo after"
+      ],
+      "input": "",
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; echo $(echo one; false; echo two)"
+      ],
+      "input": "",
+      "stdout": "one two\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; false \u0026\u0026 echo x; echo after"
+      ],
+      "input": "",
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; false; echo never"
+      ],
+      "input": "",
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 1,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; if false; then echo t; fi; echo after"
+      ],
+      "input": "",
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; true \u0026\u0026 false; echo after"
+      ],
+      "input": "",
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 1,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -e; while false; do echo body; done; echo after"
+      ],
+      "input": "",
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -o pipefail; false | true; echo $?"
+      ],
+      "input": "",
+      "stdout": "1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -o pipefail; true | false; echo $?"
+      ],
+      "input": "",
+      "stdout": "1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -u; echo $nope; echo after"
+      ],
+      "input": "",
+      "stdout": "",
+      "stderr": "/bin/bash: nope: unbound variable\n",
+      "exitCode": 127,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -u; echo ${nope-fallback}"
+      ],
+      "input": "",
+      "stdout": "fallback\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "set -u; x=1; echo $x"
+      ],
+      "input": "",
+      "stdout": "1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "shopt -s expand_aliases || true\nalias greet=\u0027echo hello\u0027\necho greet"
+      ],
+      "input": "",
+      "stdout": "greet\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "shopt -s expand_aliases || true\nalias greet=\u0027echo hello\u0027\ngreet"
+      ],
+      "input": "",
+      "stdout": "hello\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "shopt -s expand_aliases || true\nalias greet=\u0027echo hello\u0027\ngreet there"
+      ],
+      "input": "",
+      "stdout": "hello there\n",
+      "stderr": "",
+      "exitCode": 0,
+      "unstable": false
+    },
+    {
+      "tool": "bash",
+      "arguments": [
+        "--norc",
+        "--noprofile",
+        "-c",
+        "shopt -s expand_aliases || true\nalias ll=\u0027echo listed\u0027\nll; ll"
+      ],
+      "input": "",
+      "stdout": "listed\nlisted\n",
+      "stderr": "",
+      "exitCode": 0,
       "unstable": false
     },
     {

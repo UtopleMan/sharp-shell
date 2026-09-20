@@ -1,5 +1,6 @@
 using Sharp.Shell.Commands;
 using Sharp.Shell.Execution;
+using Sharp.Shell.Tests.Support;
 using Xunit;
 
 namespace Sharp.Shell.Tests.Differential;
@@ -344,12 +345,11 @@ public class AwkDifferentialTests(ITestOutputHelper output)
 
     private static (string Stdout, int ExitCode) RunOurs(AwkCase awkCase, string root)
     {
-        AppletRun run = new AwkApplet("awk").Run(new AppletContext(
+        AppletRun run = new AwkApplet("awk").Run(AppletContexts.For(
             awkCase.Arguments,
             TextStream.FromText(awkCase.Input),
             new ShellState(root),
-            _ => { },
-            CancellationToken.None));
+            _ => { }));
 
         return (TextStream.Collect(run.Output), run.ExitCode);
     }

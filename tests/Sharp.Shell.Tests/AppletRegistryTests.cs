@@ -15,7 +15,8 @@ public class AppletRegistryTests
         "sort", "uniq", "cut", "tr",
         "basename", "dirname", "realpath", "pwd",
         "mkdir", "rm", "mv", "cp", "touch",
-        "echo", "printf", "test", "[", "cd", "export", "read", "true", ":", "false", "exit",
+        "echo", "printf", "test", "[", "cd", "export", "unset", "read", "set", "shopt", "setopt", "unsetopt",
+        "alias", "unalias", "source", ".", "pushd", "popd", "dirs", "true", ":", "false", "exit",
         "command",
     ];
 

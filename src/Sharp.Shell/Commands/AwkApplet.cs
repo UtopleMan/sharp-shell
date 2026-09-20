@@ -125,13 +125,13 @@ public sealed class AwkApplet(string name) : IApplet
         }
     }
 
-    // There is no separate environment inside the sandbox — export assigns a variable and nothing
-    // else — so ENVIRON is the shell's variables.
+    // ENVIRON is the environment a child process would receive, which is the shell's exported
+    // variables — not its whole variable table.
     private static AwkRunOptions RunOptionsFor(AwkOptions options, AppletContext context) => new(
         options.FieldSeparator,
         options.Assignments,
         options.InputOperands,
-        context.State.Variables);
+        context.State.ExportedVariables);
 
     private static (string? Source, string? Error) ReadProgram(AwkOptions options, AppletContext context)
     {

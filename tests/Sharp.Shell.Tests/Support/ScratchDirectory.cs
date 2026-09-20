@@ -4,7 +4,7 @@ namespace Sharp.Shell.Tests.Support;
 // can reach.
 internal sealed class ScratchDirectory : IDisposable
 {
-    public ScratchDirectory() => Path = Directory.CreateTempSubdirectory("duetui-shell-outside").FullName;
+    public ScratchDirectory() => Path = Directory.CreateTempSubdirectory("sharp-shell-outside").FullName;
 
     public string Path { get; }
 

@@ -202,9 +202,17 @@ public class AwkInterpreterTests
     }
 
     [Fact]
-    public void EnvironIsTheShellsVariables()
+    public void EnvironIsTheShellsExportedVariables()
     {
         Assert.Equal("hello\n", Out("v=hello; export v; awk 'BEGIN {print ENVIRON[\"v\"]}'"));
+    }
+
+    // ENVIRON is the environment, not the variable table: awk is a child process everywhere else,
+    // and a variable the shell never exported is not one a child can see.
+    [Fact]
+    public void EnvironDoesNotShowAnUnexportedVariable()
+    {
+        Assert.Equal("[]\n", Out("v=hello; awk 'BEGIN {print \"[\" ENVIRON[\"v\"] \"]\"}'"));
     }
 
     // Laziness is per record: a consumer that stops reading stops the producer feeding awk. A BEGIN

@@ -15,6 +15,10 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     // not run it. 127 stays reserved for a name nothing answers to.
     private const int RefusedExitCode = 126;
 
+    // What bash reports when nounset stops a non-interactive shell. Verified against the real thing
+    // rather than assumed: it is 127, not 1.
+    private const int FatalExpansionExitCode = 127;
+
     // A function that calls itself has no iteration guard the way a loop does, and a stack overflow
     // cannot be caught. The cap is the guard; it is deliberately far above any real nesting.
     private const int MAX_FUNCTION_DEPTH = 64;
@@ -26,6 +30,10 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     private readonly CommandClassifier classifier = new(applets);
 
     private int functionDepth;
+
+    // How deep the shell is inside a construct that is testing a command rather than trusting it.
+    // errexit is silent while this is non-zero.
+    private int testedDepth;
 
     public ShellExecutor(AppletRegistry applets, ICommandExecutor external)
         : this(applets, external, new AllowAllCommandApprover())
@@ -39,6 +47,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     // other assembly can reach execution without passing through here.
     public ShellRun Run(string commandLine, ShellState state, CancellationToken cancellationToken)
     {
+        state.BeginRun();
         Classification classification = classifier.Classify(commandLine, state);
 
         return new ShellRun(
@@ -63,17 +72,29 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             string refusal = approval.Reason ?? "the command line was not approved";
             state.RequestRefusal(refusal);
 
-            return new ShellResult(RefusedExitCode, string.Empty, $"duetui-shell: {refusal}\n", refusal);
+            return new ShellResult(RefusedExitCode, string.Empty, state.Message(refusal), refusal);
         }
 
-        CommandExecution execution = external.ExecuteLine(commandLine, state.WorkingDirectory, cancellationToken);
+        CommandExecution execution = external.ExecuteLine(
+            commandLine,
+            state.WorkingDirectory,
+            state.ExportedVariables,
+            cancellationToken);
 
         return execution.IsSupported
             ? new ShellResult(execution.ExitCode, TextStream.Collect(execution.Output), execution.Error)
-            : new ShellResult(127, string.Empty, $"duetui-shell: {classification.UnrunnableReason}\n");
+            : new ShellResult(127, string.Empty, state.Message(classification.UnrunnableReason!));
     }
 
     internal ShellResult Execute(string commandLine, ShellState state, CancellationToken cancellationToken)
+    {
+        state.BeginRun();
+        return RunText(commandLine, state, cancellationToken);
+    }
+
+    // The same work without beginning a run, which is what `source` needs: a file's commands belong to
+    // the run that sourced it, so an exit inside one ends that run rather than the file.
+    private ShellResult RunText(string commandLine, ShellState state, CancellationToken cancellationToken)
     {
         ParseResult parsed = Parser.Parse(commandLine);
         StringBuilder standardOutput = new();
@@ -81,7 +102,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
 
         if (!parsed.IsParsed)
         {
-            standardError.Append($"duetui-shell: {parsed.UnsupportedReason}\n");
+            standardError.Append(state.Message(parsed.UnsupportedReason!));
             return new ShellResult(2, string.Empty, standardError.ToString());
         }
 
@@ -121,12 +142,37 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             SubshellNode subshell => RunSubshell(subshell, state, input, writeOutput, writeError, cancellationToken),
             BraceGroupNode group => Run(group.Body, state, input, writeOutput, writeError, cancellationToken),
             SimpleCommand command => Drain(Invoke(command, state, input, writeError, cancellationToken), writeOutput),
-            _ => Unsupported(node, writeError),
+            _ => Unsupported(node, state, writeError),
         };
 
         state.LastExitCode = exitCode;
+
+        if (StopsOnFailure(node, state, exitCode))
+        {
+            state.RequestFailure(exitCode);
+        }
+
         return exitCode;
     }
+
+    // errexit, and the four places it is deliberately silent. A command whose status is being *tested*
+    // rather than trusted is exempt: the condition of if/while/until, the left side of && or ||, and a
+    // pipeline the `!` operator inverts. Compound nodes are exempt too, because whatever failed inside
+    // one already had its own turn here.
+    private bool StopsOnFailure(ShellNode node, ShellState state, int exitCode) =>
+        exitCode != 0
+        && state.Options.ErrExit
+        && testedDepth == 0
+        && !state.IsUnwinding
+        && IsTrusted(node);
+
+    private static bool IsTrusted(ShellNode node) => node switch
+    {
+        // `! cmd` is asking whether the command failed, so neither answer is a reason to stop.
+        PipelineNode pipeline => !pipeline.Negated,
+        SimpleCommand or ConditionNode => true,
+        _ => false,
+    };
 
     private static int Define(FunctionDefinition definition, ShellState state)
     {
@@ -134,9 +180,9 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         return 0;
     }
 
-    private static int Unsupported(ShellNode node, Action<string> writeError)
+    private static int Unsupported(ShellNode node, ShellState state, Action<string> writeError)
     {
-        writeError($"duetui-shell: {node.GetType().Name} is not supported yet\n");
+        writeError(state.Message($"{node.GetType().Name} is not supported yet"));
         return 2;
     }
 
@@ -193,7 +239,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         Action<string> writeError,
         CancellationToken cancellationToken)
     {
-        int left = Run(andOr.Left, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
+        int left = Tested(() => Run(andOr.Left, state, TextStream.Empty, writeOutput, writeError, cancellationToken));
 
         if (state.IsUnwinding)
         {
@@ -207,7 +253,20 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             : left;
     }
 
+    // A `!` in front of a pipeline means its failure is the question, so errexit stays quiet for
+    // everything inside it as well as for the inverted answer.
     private int RunPipeline(
+        PipelineNode pipeline,
+        ShellState state,
+        IEnumerable<string> input,
+        Action<string> writeOutput,
+        Action<string> writeError,
+        CancellationToken cancellationToken) =>
+        pipeline.Negated
+            ? Tested(() => RunStages(pipeline, state, input, writeOutput, writeError, cancellationToken))
+            : RunStages(pipeline, state, input, writeOutput, writeError, cancellationToken);
+
+    private int RunStages(
         PipelineNode pipeline,
         ShellState state,
         IEnumerable<string> input,
@@ -216,9 +275,13 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         CancellationToken cancellationToken)
     {
         IEnumerable<string> flowing = input;
+        List<PipelineStage> upstream = [];
+
         for (int stage = 0; stage < pipeline.Stages.Count - 1; stage++)
         {
-            flowing = StageOutput(pipeline.Stages[stage], state, flowing, writeError, cancellationToken);
+            PipelineStage running = StageOutput(pipeline.Stages[stage], state, flowing, writeError, cancellationToken);
+            upstream.Add(running);
+            flowing = running.Output;
 
             if (state.IsUnwinding)
             {
@@ -231,6 +294,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         if (state.IsUnwinding)
         {
             return UnwindStatus(state);
+        }
+
+        if (state.Options.PipeFail)
+        {
+            exitCode = RightmostFailure(upstream, exitCode);
         }
 
         return pipeline.Negated ? (exitCode == 0 ? 1 : 0) : exitCode;
@@ -246,7 +314,8 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     {
         foreach (ConditionalBranch branch in conditional.Branches)
         {
-            int condition = Run(branch.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
+            int condition = Tested(
+                () => Run(branch.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken));
 
             if (state.IsUnwinding)
             {
@@ -279,7 +348,8 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
 
         while (!cancellationToken.IsCancellationRequested && !state.IsUnwinding)
         {
-            int condition = Run(loop.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken);
+            int condition = Tested(
+                () => Run(loop.Condition, state, TextStream.Empty, writeOutput, writeError, cancellationToken));
 
             if (state.IsUnwinding)
             {
@@ -312,7 +382,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         foreach (Word item in loop.Items)
         {
             ExpansionResult expanded = expander.Expand(item);
-            if (!Report(expanded, writeError, out int failureCode))
+            if (!Report(expanded, state, writeError, out int failureCode))
             {
                 return failureCode;
             }
@@ -345,7 +415,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         WordExpander expander = new(state, source => Substitute(source, state, writeError, cancellationToken));
         ExpansionResult subject = expander.ExpandValue(branch.Subject);
 
-        if (!Report(subject, writeError, out int failureCode))
+        if (!Report(subject, state, writeError, out int failureCode))
         {
             return failureCode;
         }
@@ -359,7 +429,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
 
         foreach (CaseArm arm in branch.Arms)
         {
-            if (!MatchesAnyPattern(text, arm, expander, writeError, out int patternFailure))
+            if (!MatchesAnyPattern(text, arm, expander, state, writeError, out int patternFailure))
             {
                 if (patternFailure != 0)
                 {
@@ -384,6 +454,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         string text,
         CaseArm arm,
         WordExpander expander,
+        ShellState state,
         Action<string> writeError,
         out int failureCode)
     {
@@ -392,7 +463,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         foreach (Word pattern in arm.Patterns)
         {
             ExpansionResult expanded = expander.ExpandValue(pattern);
-            if (!Report(expanded, writeError, out failureCode))
+            if (!Report(expanded, state, writeError, out failureCode))
             {
                 return false;
             }
@@ -410,7 +481,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     // consumer stop its producer. A compound stage — `for …; done | head -2` — cannot, because
     // interleaving two running constructs in one thread would need coroutines, so it is drained
     // into a buffer first. Rare enough to be worth the simplicity, and correct either way.
-    private IEnumerable<string> StageOutput(
+    private PipelineStage StageOutput(
         ShellNode stage,
         ShellState state,
         IEnumerable<string> input,
@@ -419,14 +490,72 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     {
         if (stage is SimpleCommand command)
         {
-            return Invoke(command, state, input, writeError, cancellationToken).Output;
+            AppletRun run = Invoke(command, state, input, writeError, cancellationToken);
+            return new PipelineStage(run.Output, () => run.ExitCode);
         }
 
         List<string> buffered = [];
-        Run(stage, state, input, buffered.Add, writeError, cancellationToken);
+        int status = Run(stage, state, input, buffered.Add, writeError, cancellationToken);
 
-        return buffered;
+        return new PipelineStage(buffered, () => status);
     }
+
+    // pipefail: the pipeline answers with the rightmost stage that failed, which is what bash reports.
+    // An upstream stage's status is only final once the last stage has drained its output, so the
+    // statuses are read here rather than as each stage was wired up.
+    private static int RightmostFailure(IReadOnlyList<PipelineStage> upstream, int last)
+    {
+        if (last != 0)
+        {
+            return last;
+        }
+
+        for (int stage = upstream.Count - 1; stage >= 0; stage--)
+        {
+            int status = upstream[stage].Status();
+
+            if (status != 0)
+            {
+                return status;
+            }
+        }
+
+        return 0;
+    }
+
+    // One stage of a running pipeline: what it is producing, and a way to ask what it finished with
+    // once whoever is downstream has finished reading.
+    private readonly record struct PipelineStage(IEnumerable<string> Output, Func<int> Status);
+
+    // Runs something whose failure is being examined rather than acted on, so errexit stays quiet for
+    // as long as it takes.
+    private int Tested(Func<int> run)
+    {
+        testedDepth++;
+
+        try
+        {
+            return run();
+        }
+        finally
+        {
+            testedDepth--;
+        }
+    }
+
+    private AppletContext ContextFor(
+        IReadOnlyList<string> arguments,
+        IEnumerable<string> input,
+        ShellState state,
+        Action<string> writeError,
+        CancellationToken cancellationToken) =>
+        new(
+            arguments,
+            input,
+            state,
+            writeError,
+            cancellationToken,
+            text => RunText(text, state, cancellationToken));
 
     private static int Drain(AppletRun run, Action<string> writeOutput)
     {
@@ -453,7 +582,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         foreach (Word word in condition.Words)
         {
             ExpansionResult expanded = expander.ExpandValue(word);
-            if (!Report(expanded, writeError, out int failureCode))
+            if (!Report(expanded, state, writeError, out int failureCode))
             {
                 return AppletRun.Failed(failureCode);
             }
@@ -464,7 +593,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         IReadOnlyList<string> tail = [.. operands.Skip(1)];
 
         return TryApprove("[[", tail, isOwned: true, state, cancellationToken)
-            ? Condition.Run(new AppletContext(tail, TextStream.Empty, state, writeError, cancellationToken))
+            ? Condition.Run(ContextFor(tail, TextStream.Empty, state, writeError, cancellationToken))
             : AppletRun.Failed(RefusedExitCode);
     }
 
@@ -475,16 +604,17 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         Action<string> writeError,
         CancellationToken cancellationToken)
     {
+        command = WithAliasesExpanded(command, state);
         WordExpander expander = new(state, source => Substitute(source, state, writeError, cancellationToken));
         RedirectionPlan plan = ResolveRedirections(command, expander, state, writeError);
 
         if (plan.Failure is not null)
         {
-            writeError($"duetui-shell: {plan.Failure}\n");
+            writeError(state.Message(plan.Failure));
             return AppletRun.Failed(1);
         }
 
-        if (!TryExpandWords(command, expander, writeError, out IReadOnlyList<string> words, out int failure))
+        if (!TryExpandWords(command, expander, state, writeError, out IReadOnlyList<string> words, out int failure))
         {
             return AppletRun.Failed(failure);
         }
@@ -514,11 +644,50 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         // unapplied, so a denied `rm x > out` does not truncate `out` on its way out.
         if (state.RefusalRequested)
         {
-            writeError($"duetui-shell: {state.RefusalReason}\n");
+            writeError(state.Message(state.RefusalReason!));
             return run;
         }
 
         return ApplyOutputRedirection(run, plan, capturedErrors, state, writeError);
+    }
+
+    // An alias stands in for the command word and nothing else, so only a fully literal first word can
+    // name one — `x=ll; $x` runs `ll`, as it does in bash. Each name is expanded at most once, which is
+    // bash's guard: `alias ls='ls f.txt'` reaches the command instead of looping.
+    private static SimpleCommand WithAliasesExpanded(SimpleCommand command, ShellState state)
+    {
+        HashSet<string> expanded = new(StringComparer.Ordinal);
+
+        while (AliasBodyOf(command, state, expanded) is { } body)
+        {
+            if (Lexer.Tokenize(body) is not { Error: null } lexed)
+            {
+                return command;
+            }
+
+            IReadOnlyList<Word> words = [.. lexed.Tokens.Where(token => token.Kind == TokenKind.Word).Select(token => token.Word!)];
+
+            if (words.Count == 0)
+            {
+                return command;
+            }
+
+            command = command with { Words = [.. words, .. command.Words.Skip(1)] };
+        }
+
+        return command;
+    }
+
+    private static string? AliasBodyOf(SimpleCommand command, ShellState state, HashSet<string> alreadyExpanded)
+    {
+        if (command.Words is not [{ IsFullyLiteral: true } head, ..])
+        {
+            return null;
+        }
+
+        string name = head.LiteralText;
+
+        return alreadyExpanded.Add(name) && state.Aliases.TryGetValue(name, out string? body) ? body : null;
     }
 
     // The single point every command passes through with its words already expanded, which is why
@@ -535,6 +704,11 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         bool isFunction = state.Functions.ContainsKey(name);
         OwnedCommand? owned = isFunction ? null : ResolveOwned(name, arguments);
 
+        if (!isFunction && owned is null && NamesADirectory(name, arguments, state))
+        {
+            return RunOwnedOrExternal("cd", [name], input, state, errorSink, cancellationToken);
+        }
+
         if (!TryApprove(name, arguments, isFunction || owned is not null, state, cancellationToken))
         {
             return AppletRun.Failed(RefusedExitCode);
@@ -546,9 +720,16 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         }
 
         return owned is { } command
-            ? command.Applet.Run(new AppletContext(command.Arguments, input, state, errorSink, cancellationToken))
+            ? command.Applet.Run(ContextFor(command.Arguments, input, state, errorSink, cancellationToken))
             : RunExternal(name, arguments, state, input, errorSink, cancellationToken);
     }
+
+    // autocd: a bare directory name is a cd. It is answered here rather than in the parser so the
+    // command that reaches the approver is the `cd` that actually runs, not the word that was typed.
+    private static bool NamesADirectory(string name, IReadOnlyList<string> arguments, ShellState state) =>
+        state.Options.AutoCd
+        && arguments.Count == 0
+        && Directory.Exists(state.Resolve(name));
 
     // A function runs against the caller's state — a cd inside one sticks, as it does in bash — with
     // only the positional parameters swapped for the call's arguments. Its output is buffered rather
@@ -564,7 +745,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     {
         if (functionDepth >= MAX_FUNCTION_DEPTH)
         {
-            errorSink($"duetui-shell: {name}: function nesting exceeded {MAX_FUNCTION_DEPTH}\n");
+            errorSink(state.Message($"{name}: function nesting exceeded {MAX_FUNCTION_DEPTH}"));
             return AppletRun.Failed(2);
         }
 
@@ -597,7 +778,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         foreach (Word item in menu.Items)
         {
             ExpansionResult expanded = expander.Expand(item);
-            if (!Report(expanded, writeError, out int failureCode))
+            if (!Report(expanded, state, writeError, out int failureCode))
             {
                 return failureCode;
             }
@@ -939,11 +1120,17 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         Action<string> writeError,
         CancellationToken cancellationToken)
     {
-        CommandExecution execution = external.Execute(name, arguments, state.WorkingDirectory, input, cancellationToken);
+        CommandExecution execution = external.Execute(
+            name,
+            arguments,
+            state.WorkingDirectory,
+            state.ExportedVariables,
+            input,
+            cancellationToken);
 
         if (!execution.IsSupported)
         {
-            writeError($"duetui-shell: {name}: command not found\n");
+            writeError(state.Message($"{name}: command not found"));
             return AppletRun.Failed(127);
         }
 
@@ -960,6 +1147,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
     private static bool TryExpandWords(
         SimpleCommand command,
         WordExpander expander,
+        ShellState state,
         Action<string> writeError,
         out IReadOnlyList<string> words,
         out int failureCode)
@@ -968,7 +1156,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         foreach (Word word in command.Words)
         {
             ExpansionResult expanded = expander.Expand(word);
-            if (!Report(expanded, writeError, out failureCode))
+            if (!Report(expanded, state, writeError, out failureCode))
             {
                 words = [];
                 return false;
@@ -982,19 +1170,25 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         return true;
     }
 
-    private static bool Report(ExpansionResult expanded, Action<string> writeError, out int failureCode)
+    private static bool Report(ExpansionResult expanded, ShellState state, Action<string> writeError, out int failureCode)
     {
         if (!expanded.IsSupported)
         {
-            writeError($"duetui-shell: {expanded.UnsupportedReason}\n");
+            writeError(state.Message(expanded.UnsupportedReason!));
             failureCode = 2;
             return false;
         }
 
         if (expanded.HasError)
         {
-            writeError($"duetui-shell: {expanded.ErrorMessage}\n");
-            failureCode = 1;
+            writeError(state.Message(expanded.ErrorMessage!));
+            failureCode = expanded.IsFatal ? FatalExpansionExitCode : 1;
+
+            if (expanded.IsFatal)
+            {
+                state.RequestFailure(failureCode);
+            }
+
             return false;
         }
 
@@ -1011,7 +1205,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         foreach (Assignment assignment in command.Assignments)
         {
             ExpansionResult expanded = expander.ExpandValue(assignment.Value);
-            if (!Report(expanded, writeError, out int failureCode))
+            if (!Report(expanded, state, writeError, out int failureCode))
             {
                 return AppletRun.Failed(failureCode);
             }

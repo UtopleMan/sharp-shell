@@ -5,7 +5,7 @@ namespace Sharp.Shell.Tests;
 
 public class ShellStateTests : IDisposable
 {
-    private readonly string root = Directory.CreateTempSubdirectory("duetui-shell-state").FullName;
+    private readonly string root = Directory.CreateTempSubdirectory("sharp-shell-state").FullName;
 
     public void Dispose()
     {

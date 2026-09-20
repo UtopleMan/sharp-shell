@@ -9,12 +9,13 @@ internal sealed record Options(
     string? ScriptPath,
     bool Explains,
     bool Strict,
+    bool NoRc,
     string? Error)
 {
     public const string Usage =
-        "usage: shsh [--root <dir>] [--explain] [--strict] [-c <command> | <script>]";
+        "usage: shsh [--root <dir>] [--explain] [--strict] [--norc] [-c <command> | <script>]";
 
-    public SessionSettings Settings => new(Root, StartDirectory, Explains, Strict);
+    public SessionSettings Settings => new(Root, StartDirectory, Explains, Strict, !NoRc);
 
     public static Options Parse(string[] arguments)
     {
@@ -26,6 +27,7 @@ internal sealed record Options(
         string? scriptPath = null;
         bool explains = false;
         bool strict = false;
+        bool noRc = false;
 
         for (int index = 0; index < arguments.Length; index++)
         {
@@ -43,6 +45,9 @@ internal sealed record Options(
                     continue;
                 case "--strict":
                     strict = true;
+                    continue;
+                case "--norc":
+                    noRc = true;
                     continue;
                 case "-h" or "--help":
                     return Failed(root, Usage);
@@ -62,9 +67,17 @@ internal sealed record Options(
             return Failed(root, $"{scriptPath}: no such file");
         }
 
-        return new Options(root, start ?? Directory.GetCurrentDirectory(), command, scriptPath, explains, strict, null);
+        return new Options(
+            root,
+            start ?? Directory.GetCurrentDirectory(),
+            command,
+            scriptPath,
+            explains,
+            strict,
+            noRc,
+            null);
     }
 
     private static Options Failed(string root, string error) =>
-        new(root, root, null, null, false, false, error);
+        new(root, root, null, null, false, false, false, error);
 }

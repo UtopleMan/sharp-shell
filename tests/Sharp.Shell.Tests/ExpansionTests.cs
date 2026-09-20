@@ -117,12 +117,44 @@ public class ExpansionTests
         Assert.Equal("a  b\n", Out("v=\"a  b\"; echo \"$v\""));
     }
 
+    // Without a HOME there is nowhere else to go, and the root is the only directory the shell is
+    // certain of.
     [Fact]
-    public void TildeExpandsToTheWorkspaceRoot()
+    public void TildeFallsBackToTheWorkspaceRootWhenHomeIsUnset()
     {
         using ShellHarness harness = new();
 
         Assert.Equal($"{harness.Root}\n", harness.Run("echo ~").Stdout);
+    }
+
+    [Fact]
+    public void TildeExpandsToHome()
+    {
+        Assert.Equal("/home/me\n", Out("HOME=/home/me; echo ~"));
+    }
+
+    [Fact]
+    public void TildeExpandsToHomeInsideAPath()
+    {
+        Assert.Equal("/home/me/notes\n", Out("HOME=/home/me; echo ~/notes"));
+    }
+
+    [Fact]
+    public void ThePresentWorkingDirectoryFollowsCd()
+    {
+        using ShellHarness harness = new();
+        harness.Write("sub/f.txt", "");
+
+        Assert.Equal($"{Path.Combine(harness.Root, "sub")}\n", harness.Run("cd sub; echo $PWD").Stdout);
+    }
+
+    [Fact]
+    public void ThePreviousWorkingDirectoryIsRemembered()
+    {
+        using ShellHarness harness = new();
+        harness.Write("sub/f.txt", "");
+
+        Assert.Equal($"{harness.Root}\n", harness.Run("cd sub; echo $OLDPWD").Stdout);
     }
 
     [Fact]

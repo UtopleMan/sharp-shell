@@ -14,9 +14,10 @@ internal sealed class NativeTier : ICommandExecutor
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken) =>
-        RunCapturing(program, arguments, workingDirectory, input, cancellationToken);
+        RunCapturing(program, arguments, workingDirectory, environment, input, cancellationToken);
 
     // A line handed over whole keeps the terminal: it is the escape hatch for constructs this shell
     // has no model for, and capturing its output would break the interactive programs that are the
@@ -24,17 +25,19 @@ internal sealed class NativeTier : ICommandExecutor
     public CommandExecution ExecuteLine(
         string commandLine,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         CancellationToken cancellationToken) =>
-        RunAttached(Executable, [CommandFlag, commandLine], workingDirectory);
+        RunAttached(Executable, [CommandFlag, commandLine], workingDirectory, environment);
 
     private static CommandExecution RunCapturing(
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         IEnumerable<string> input,
         CancellationToken cancellationToken)
     {
-        using Process process = Configure(program, arguments, workingDirectory, redirects: true);
+        using Process process = Configure(program, arguments, workingDirectory, environment, redirects: true);
 
         if (!TryStart(process))
         {
@@ -54,9 +57,10 @@ internal sealed class NativeTier : ICommandExecutor
     private static CommandExecution RunAttached(
         string program,
         IReadOnlyList<string> arguments,
-        string workingDirectory)
+        string workingDirectory,
+        IReadOnlyDictionary<string, string> environment)
     {
-        using Process process = Configure(program, arguments, workingDirectory, redirects: false);
+        using Process process = Configure(program, arguments, workingDirectory, environment, redirects: false);
 
         if (!TryStart(process))
         {
@@ -72,6 +76,7 @@ internal sealed class NativeTier : ICommandExecutor
         string program,
         IReadOnlyList<string> arguments,
         string workingDirectory,
+        IReadOnlyDictionary<string, string> environment,
         bool redirects)
     {
         Process process = new()
@@ -92,7 +97,22 @@ internal sealed class NativeTier : ICommandExecutor
             process.StartInfo.ArgumentList.Add(argument);
         }
 
+        Apply(environment, process.StartInfo);
+
         return process;
+    }
+
+    // The shell's exported variables *are* the child's environment. ProcessStartInfo starts out with
+    // this process's own, so it is cleared first: a variable the user unset must not reappear in the
+    // child because shsh inherited it at start-up.
+    private static void Apply(IReadOnlyDictionary<string, string> environment, ProcessStartInfo startInfo)
+    {
+        startInfo.Environment.Clear();
+
+        foreach (KeyValuePair<string, string> variable in environment)
+        {
+            startInfo.Environment[variable.Key] = variable.Value;
+        }
     }
 
     private static bool TryStart(Process process)
