@@ -54,6 +54,30 @@ public class SourceTests
         Assert.Equal("hello\n", harness.Run("source start.sh; greet").Stdout);
     }
 
+    // A sourced file reads the stdin the command was given, as bash does. Without it the pipe stops at
+    // the builtin and the file sees nothing.
+    [Fact]
+    public void ASourcedFileReadsTheInputItWasPiped()
+    {
+        using ShellHarness harness = new();
+        harness.Write("start.sh", "cat\n");
+
+        Assert.Equal("hi\n", harness.Run("echo hi | source start.sh").Stdout);
+    }
+
+    // Deviation from bash, recorded deliberately and shared with ShellExecutor.Run's own input
+    // overload: the stdin reaches a body that is *one* command. RunSequence hands TextStream.Empty to
+    // each item it runs, so the second line of a sourced file cannot read what the first did not take.
+    // bash gives every command in the file the same stdin.
+    [Fact]
+    public void ASequenceInASourcedFileDoesNotReadThatInputYet()
+    {
+        using ShellHarness harness = new();
+        harness.Write("start.sh", "read line\necho \"[$line]\"\n");
+
+        Assert.Equal("[]\n", harness.Run("echo hi | source start.sh").Stdout);
+    }
+
     [Fact]
     public void AFileThatCannotBeReadIsAnErrorWithItsReason()
     {

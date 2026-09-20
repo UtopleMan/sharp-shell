@@ -13,7 +13,8 @@ public sealed record FlagSupport(bool IsSupported, string? UnsupportedFlag)
 
 // RunShellText is how `source` runs a file against the state it was called with. The executor supplies
 // it because the executor is the only thing that can run shell text, and it does not begin a new run:
-// an exit or a refusal inside a sourced file unwinds the line that sourced it.
+// an exit or a refusal inside a sourced file unwinds the line that sourced it. It carries this
+// command's own Input, so `echo hi | source f.sh` reaches a `read` inside the file.
 public sealed record AppletContext(
     IReadOnlyList<string> Arguments,
     IEnumerable<string> Input,

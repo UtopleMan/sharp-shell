@@ -583,7 +583,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             state,
             writeError,
             cancellationToken,
-            text => RunText(text, state, cancellationToken));
+            text => RunText(text, state, input, cancellationToken));
 
     private static int Drain(AppletRun run, Action<string> writeOutput)
     {
