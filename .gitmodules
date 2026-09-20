@@ -1,0 +1,3 @@
+[submodule "vendor/test-pty"]
+	path = vendor/test-pty
+	url = https://github.com/UtopleMan/test-pty.git

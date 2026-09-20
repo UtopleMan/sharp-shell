@@ -2,6 +2,8 @@ No Co-Authored-By, no AI mention in any commit messages.
 
 Never commit anything without explicit approval.
 
+Never look in the ./non-ai folder.
+
 # Coding conventions #
 
 ## Naming
