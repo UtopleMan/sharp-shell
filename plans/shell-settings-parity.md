@@ -676,7 +676,9 @@ settled one-flag model cannot express.
 
 **Release as v0.3.0.** `ICommandExecutor.Execute` and `ExecuteLine` both gained
 `IReadOnlyDictionary<string, string> environment` with no compatibility overload, so every consumer
-must change. `ShellState`'s constructor gained two optional arguments (`shellName`, `environment`),
+must change. The same release carries `CommandExecution` becoming a class with settable `Output`,
+`ExitCode` and `Error` (main's "read a command's exit code when its output ends", merged into this
+branch), which breaks a host that built one with a `with` expression or deconstructed it positionally. `ShellState`'s constructor gained two optional arguments (`shellName`, `environment`),
 which is source-compatible. The messages a user sees no longer say `duetui-shell:` — anything matching
 on stderr matches the name the host supplied, and `ShellResult.RefusalReason` is the thing to read
 instead.

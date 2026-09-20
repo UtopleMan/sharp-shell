@@ -81,9 +81,14 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             state.ExportedVariables,
             cancellationToken);
 
-        return execution.IsSupported
-            ? new ShellResult(execution.ExitCode, TextStream.Collect(execution.Output), execution.Error)
-            : new ShellResult(127, string.Empty, state.Message(classification.UnrunnableReason!));
+        if (!execution.IsSupported)
+        {
+            return new ShellResult(127, string.Empty, state.Message(classification.UnrunnableReason!));
+        }
+
+        string output = TextStream.Collect(execution.Output);
+
+        return new ShellResult(execution.ExitCode, output, execution.Error);
     }
 
     internal ShellResult Execute(string commandLine, ShellState state, CancellationToken cancellationToken)
@@ -1134,12 +1139,34 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             return AppletRun.Failed(127);
         }
 
-        if (execution.Error.Length > 0)
-        {
-            writeError(execution.Error);
-        }
+        AppletRun run = new() { ExitCode = execution.ExitCode };
+        run.Output = Relay(execution, run, writeError);
 
-        return new AppletRun { Output = execution.Output, ExitCode = execution.ExitCode };
+        return run;
+    }
+
+    // How a child ended is only known once its output has been read, so the exit code and the
+    // stderr are taken when the stream ends rather than when the executor returned. The finally is
+    // the point: a consumer that stops early — `native-thing | head -2` — still ends the producer
+    // and still gets the answer, which is what makes an executor free to stream.
+    private static IEnumerable<string> Relay(CommandExecution execution, AppletRun run, Action<string> writeError)
+    {
+        try
+        {
+            foreach (string chunk in execution.Output)
+            {
+                yield return chunk;
+            }
+        }
+        finally
+        {
+            run.ExitCode = execution.ExitCode;
+
+            if (execution.Error.Length > 0)
+            {
+                writeError(execution.Error);
+            }
+        }
     }
 
     // An unsupported expansion exits 2, the same code an unsupported construct uses, because both

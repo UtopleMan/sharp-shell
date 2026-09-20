@@ -81,12 +81,45 @@ already the one starting it. Pass it straight through, filter it to an allowlist
 ignoring it means `export FOO=bar; yourtool` cannot see `FOO`.
 
 > **Contract change in v0.3.0.** Both methods gained the parameter, with no compatibility overload.
-> An executor written against v0.2 will not compile until it takes the environment.
+> An executor written against v0.2 will not compile until it takes the environment. `CommandExecution`
+> changed in the same release — a class with settable `Output`, `ExitCode` and `Error` rather than a
+> record — so a host that built one with a `with` expression or deconstructed it positionally changes
+> too.
 
 `Output` is an `IEnumerable<string>` and the shell never materializes it: `cat huge.log | yourtool`
 and `yourtool | head -2` both stream, and a consumer that stops enumerating stops the producer.
 That is this shell's SIGPIPE, and an executor that reads its child to the end before returning
 throws it away.
+
+`ExitCode` and `Error` are therefore **read when the stream ends, not when `Execute` returns**. An
+executor that streams cannot know either up front — the child has not finished writing — so it sets
+them from inside its own iterator:
+
+```csharp
+CommandExecution execution = new(true, 0, TextStream.Empty, string.Empty);
+execution.Output = Stream(execution);
+return execution;
+
+IEnumerable<string> Stream(CommandExecution execution)
+{
+    try
+    {
+        while (Reading(out string chunk))
+        {
+            yield return chunk;
+        }
+    }
+    finally
+    {
+        execution.ExitCode = child.ExitCode;
+        execution.Error = collectedStderr;
+    }
+}
+```
+
+The `finally` is the part that matters: a consumer that stops early still ends the child and still
+reports how it ended. An executor that has both values up front — one that ran the child to
+completion — sets them in the constructor and is read the same way.
 
 ## Be fail-closed
 
