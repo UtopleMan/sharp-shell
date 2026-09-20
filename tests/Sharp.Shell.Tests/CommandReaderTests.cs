@@ -168,4 +168,21 @@ public class CommandReaderTests
     [InlineData("# comment")]
     public void AWholeCommandIsNotASyntaxError(string command) =>
         Assert.Null(CommandReader.SyntaxErrorIn(command));
+
+    // Ctrl+C at a continuation prompt. Without this an unterminated quote traps the shell: every
+    // line after it, `exit` included, is swallowed into a command that can never complete.
+    [Fact]
+    public void AbandoningThrowsAwayTheHalfTypedCommand()
+    {
+        CommandReader reader = new();
+        reader.TryComplete("echo \"oops", out _);
+        Assert.True(reader.IsContinuing);
+
+        reader.Abandon();
+
+        Assert.False(reader.IsContinuing);
+        Assert.Equal(string.Empty, reader.Pending);
+        Assert.True(reader.TryComplete("exit", out string command));
+        Assert.Equal("exit\n", command);
+    }
 }

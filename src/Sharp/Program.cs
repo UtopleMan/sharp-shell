@@ -28,24 +28,26 @@ internal static class Program
         }
 
         Session session = new(options.Settings, Console.Out, Console.Error);
-        using CancellationTokenSource interrupt = new();
+        using Interrupts interrupts = new();
 
-        // Ctrl+C cancels the running command, as a shell does, rather than killing the shell.
+        // Ctrl+C stops the running command and abandons the line being typed, as a shell does,
+        // rather than killing the shell.
         Console.CancelKeyPress += (_, cancel) =>
         {
             cancel.Cancel = true;
-            interrupt.Cancel();
+            interrupts.Raise();
+            Console.Error.WriteLine("^C");
         };
 
         return options.Command is { } command
-            ? RunOneCommand(session, command, interrupt)
-            : RunLines(session, options, interrupt);
+            ? RunOneCommand(session, command, interrupts)
+            : RunLines(session, options, interrupts);
     }
 
-    private static int RunOneCommand(Session session, string command, CancellationTokenSource interrupt) =>
+    private static int RunOneCommand(Session session, string command, Interrupts interrupts) =>
         CommandReader.SyntaxErrorIn(command) is { } reason
             ? ReportSyntaxError(reason)
-            : RunOne(session, command, interrupt);
+            : RunOne(session, command, interrupts);
 
     // bash stops a non-interactive shell at its first syntax error: the offending command does not
     // run and neither does anything after it. An interactive shell reports and carries on, because
@@ -56,7 +58,7 @@ internal static class Program
         return 2;
     }
 
-    private static int RunLines(Session session, Options options, CancellationTokenSource interrupt)
+    private static int RunLines(Session session, Options options, Interrupts interrupts)
     {
         using TextReader reader = options.ScriptPath is { } path ? new StreamReader(path) : Console.In;
         bool interactive = options.ScriptPath is null && !Console.IsInputRedirected;
@@ -81,7 +83,16 @@ internal static class Program
             {
                 // The input ended in the middle of a command. It runs anyway, so that it reports
                 // its own unterminated-construct error rather than vanishing.
-                return commands.IsContinuing ? RunOneCommand(session, commands.Pending, interrupt) : status;
+                return commands.IsContinuing ? RunOneCommand(session, commands.Pending, interrupts) : status;
+            }
+
+            // Ctrl+C arrived while this line was being typed. The line goes, and so does anything
+            // pending with it: an unterminated quote must not be able to swallow the shell.
+            if (interactive && interrupts.WasRaised)
+            {
+                interrupts.Reset();
+                commands.Abandon();
+                continue;
             }
 
             if (!commands.TryComplete(line, out string command))
@@ -100,7 +111,8 @@ internal static class Program
                 continue;
             }
 
-            status = RunOne(session, command, interrupt);
+            interrupts.Reset();
+            status = RunOne(session, command, interrupts);
 
             if (session.WantsExit)
             {
@@ -109,16 +121,15 @@ internal static class Program
         }
     }
 
-    // A cancelled command must not take the shell down with it.
-    private static int RunOne(Session session, string line, CancellationTokenSource interrupt)
+    // A cancelled command must not take the shell down with it. The handler has already said ^C.
+    private static int RunOne(Session session, string line, Interrupts interrupts)
     {
         try
         {
-            return session.Run(line, interrupt.Token);
+            return session.Run(line, interrupts.Token);
         }
         catch (OperationCanceledException)
         {
-            Console.Error.WriteLine("^C");
             return 130;
         }
     }

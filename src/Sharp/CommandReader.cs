@@ -27,6 +27,11 @@ internal sealed class CommandReader
     public static string? SyntaxErrorIn(string command) =>
         Parser.Parse(command) is { IsSyntaxError: true } failed ? failed.UnsupportedReason : null;
 
+    // Ctrl+C at a continuation prompt throws the half-typed command away, as it does in bash.
+    // Without it an unterminated quote traps the shell: every line after it, `exit` included, is
+    // swallowed into a command that can never complete.
+    public void Abandon() => pending.Clear();
+
     public bool TryComplete(string line, out string command)
     {
         pending.Append(line).Append('\n');

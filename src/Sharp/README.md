@@ -39,6 +39,12 @@ command does not run and neither does anything after it, and the exit status is 
 shell does not implement — `&`, `trap`, process substitution — is not a syntax error: it is valid
 bash, so the line is handed over and the script runs on.
 
+Interactively, **Ctrl+C** abandons whatever is half-typed and brings the prompt back, and **Ctrl+D**
+ends the session. Both matter at a `> ` prompt: an unterminated quote leaves one, and `exit` typed
+there is swallowed into the pending command rather than run — which is what bash does too. Ctrl+C is
+the way out. It needs one Enter to redraw the prompt, because the shell is blocked reading a line
+rather than reading keys.
+
 ## What `--explain` tells you
 
 The first line classifies the line; the indented ones are the decisions, one per command, in the
