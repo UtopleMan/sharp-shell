@@ -5,7 +5,8 @@ internal sealed record ApprovalRequest(
     IReadOnlyList<string> Arguments,
     string CommandText,
     string WorkingDirectory,
-    bool IsOwned);
+    bool IsOwned,
+    bool IsNonDestructive);
 
 // Records every command the executor asked about, and answers with whatever the test supplied.
 internal sealed class RecordingCommandApprover(Func<ApprovalRequest, CommandApproval>? decide = null) : ICommandApprover
@@ -24,9 +25,10 @@ internal sealed class RecordingCommandApprover(Func<ApprovalRequest, CommandAppr
         string commandText,
         string workingDirectory,
         bool isOwned,
+        bool isNonDestructive,
         CancellationToken cancellationToken)
     {
-        ApprovalRequest request = new(program, arguments, commandText, workingDirectory, isOwned);
+        ApprovalRequest request = new(program, arguments, commandText, workingDirectory, isOwned, isNonDestructive);
         Requests.Add(request);
 
         return decide is null ? CommandApproval.Allowed : decide(request);
@@ -37,7 +39,7 @@ internal sealed class RecordingCommandApprover(Func<ApprovalRequest, CommandAppr
         string workingDirectory,
         CancellationToken cancellationToken)
     {
-        ApprovalRequest request = new(commandLine, [], commandLine, workingDirectory, IsOwned: false);
+        ApprovalRequest request = new(commandLine, [], commandLine, workingDirectory, IsOwned: false, IsNonDestructive: false);
         Lines.Add(request);
 
         return decide is null ? CommandApproval.Allowed : decide(request);

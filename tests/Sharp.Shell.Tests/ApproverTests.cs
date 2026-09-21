@@ -131,6 +131,55 @@ public class ApproverTests
         Assert.Equal(126, result.ExitCode);
     }
 
+    // The narrower claim the group grant is keyed on. Every case is answered by an approver that
+    // refuses, so the flag is recorded without the destructive commands under test ever running.
+    [Theory]
+    [InlineData("cat f", true)]
+    [InlineData("rm -rf .", false)]
+    [InlineData("sed -n 1,5p f", true)]
+    [InlineData("sed -i s/a/b/ f", false)]
+    [InlineData("sed -ni s/a/b/ f", false)]
+    [InlineData("echo hi > out", false)]
+    public void ReportsWhetherTheInvocationIsNonDestructive(string commandLine, bool expected)
+    {
+        RecordingCommandApprover approver = new(_ => CommandApproval.Deny("refused"));
+        using ShellHarness harness = new(approver: approver);
+        harness.Write("f", "content\n");
+
+        harness.Run(commandLine);
+
+        Assert.Equal(expected, Assert.Single(approver.Requests).IsNonDestructive);
+    }
+
+    // A function reports owned with no applet behind it, and its body can contain anything, so the
+    // name it borrows never earns the claim.
+    [Fact]
+    public void AShellFunctionIsNeverNonDestructive()
+    {
+        RecordingCommandApprover approver = new(request =>
+            request.Program == "cat" ? CommandApproval.Deny("refused") : CommandApproval.Allowed);
+        using ShellHarness harness = new(approver: approver);
+
+        harness.Run("cat() { rm -rf .; }; cat f");
+
+        ApprovalRequest request = Assert.Single(approver.Requests);
+        Assert.True(request.IsOwned);
+        Assert.False(request.IsNonDestructive);
+    }
+
+    // The native tier is opaque: the shell cannot see what a real program does, so an escalation
+    // never carries the claim either.
+    [Fact]
+    public void AnEscalationToTheNativeTierIsNeverNonDestructive()
+    {
+        RecordingCommandApprover approver = new();
+        using ShellHarness harness = new(new StubCommandExecutor(string.Empty, 0), approver);
+
+        harness.Run("ls -la");
+
+        Assert.False(Assert.Single(approver.Requests).IsNonDestructive);
+    }
+
     [Fact]
     public void TheDenyingApproverRefusesEverything()
     {

@@ -620,7 +620,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
 
         IReadOnlyList<string> tail = [.. operands.Skip(1)];
 
-        return TryApprove("[[", tail, isOwned: true, state, cancellationToken)
+        return TryApprove("[[", tail, isOwned: true, !Condition.MutatesWith(tail), state, cancellationToken)
             ? Condition.Run(ContextFor(tail, TextStream.Empty, state, writeError, cancellationToken))
             : AppletRun.Failed(RefusedExitCode);
     }
@@ -665,7 +665,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         Action<string> errorSink = ErrorSinkFor(plan, capturedErrors, writeError);
 
         AppletRun run = RunOwnedOrExternal(
-            name, arguments, effectiveInput, state, errorSink, cancellationToken);
+            name, arguments, effectiveInput, plan, state, errorSink, cancellationToken);
 
         // A refusal is the shell speaking, not the command, so it goes to the real stderr rather
         // than through a `2>` the refused command never got to honour — and the redirection is left
@@ -725,6 +725,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         string name,
         IReadOnlyList<string> arguments,
         IEnumerable<string> input,
+        RedirectionPlan plan,
         ShellState state,
         Action<string> errorSink,
         CancellationToken cancellationToken)
@@ -734,10 +735,16 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
 
         if (!isFunction && owned is null && NamesADirectory(name, arguments, state))
         {
-            return RunOwnedOrExternal("cd", [name], input, state, errorSink, cancellationToken);
+            return RunOwnedOrExternal("cd", [name], input, plan, state, errorSink, cancellationToken);
         }
 
-        if (!TryApprove(name, arguments, isFunction || owned is not null, state, cancellationToken))
+        // A function reports owned with no applet behind it and a body that can contain anything,
+        // so it is not asked: only an applet's own MutatesWith answer counts.
+        bool isNonDestructive = owned is { } resolved
+            && !resolved.Applet.MutatesWith(resolved.Arguments)
+            && !plan.WritesOutput;
+
+        if (!TryApprove(name, arguments, isFunction || owned is not null, isNonDestructive, state, cancellationToken))
         {
             return AppletRun.Failed(RefusedExitCode);
         }
@@ -864,6 +871,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         string name,
         IReadOnlyList<string> arguments,
         bool isOwned,
+        bool isNonDestructive,
         ShellState state,
         CancellationToken cancellationToken)
     {
@@ -873,6 +881,7 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             CommandText.Of(name, arguments),
             state.WorkingDirectory,
             isOwned,
+            isNonDestructive,
             cancellationToken);
 
         if (approval.IsAllowed)
@@ -1092,8 +1101,8 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
         }
 
         return fileDescriptor == 2
-            ? plan with { Error = StreamTarget.File, ErrorPath = absolute, ErrorAppends = appends }
-            : plan with { Output = StreamTarget.File, OutputPath = absolute, OutputAppends = appends };
+            ? plan with { Error = StreamTarget.File, ErrorPath = absolute, ErrorAppends = appends, WritesOutput = true }
+            : plan with { Output = StreamTarget.File, OutputPath = absolute, OutputAppends = appends, WritesOutput = true };
     }
 
     private static RedirectionPlan BothToFile(string target, ShellState state, RedirectionPlan plan)
@@ -1109,14 +1118,15 @@ public sealed class ShellExecutor(AppletRegistry applets, ICommandExecutor exter
             OutputPath = absolute,
             OutputAppends = false,
             Error = StreamTarget.OtherStream,
+            WritesOutput = true,
         };
     }
 
     private static RedirectionPlan Duplicate(int fileDescriptor, string target, RedirectionPlan plan) =>
         (fileDescriptor, target) switch
         {
-            (2, "1") => plan with { Error = StreamTarget.OtherStream },
-            (1, "2") => plan with { Output = StreamTarget.OtherStream },
+            (2, "1") => plan with { Error = StreamTarget.OtherStream, WritesOutput = true },
+            (1, "2") => plan with { Output = StreamTarget.OtherStream, WritesOutput = true },
             _ => RedirectionPlan.Failed($"{fileDescriptor}>&{target} is not supported"),
         };
 

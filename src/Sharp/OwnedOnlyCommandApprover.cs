@@ -17,6 +17,7 @@ internal sealed class OwnedOnlyCommandApprover : ICommandApprover
         string commandText,
         string workingDirectory,
         bool isOwned,
+        bool isNonDestructive,
         CancellationToken cancellationToken) =>
         isOwned
             ? CommandApproval.Allowed

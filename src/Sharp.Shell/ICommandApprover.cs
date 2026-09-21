@@ -21,6 +21,13 @@ public sealed record CommandApproval(bool IsAllowed, string? Reason)
 // isOwned says whether the shell is about to run its own applet or reach for a real program. It is
 // information, not policy: a host may consent to a sandboxed applet and refuse the same name as a
 // process, and only the shell knows which it is about to do.
+//
+// isNonDestructive is the narrower claim, and the only one a standing "all read-only commands"
+// consent may be keyed on: an applet the shell implements itself, whose own code declares this
+// invocation non-mutating, with nothing redirected out of the default streams. `sed -n 1,5p f` is
+// in and `sed -i s/a/b/ f` is out; a shell function is out however it is named; a native program is
+// out, because the shell cannot see inside one. False means ask — it is never a claim that the
+// command writes, only that the shell will not vouch for it.
 public interface ICommandApprover
 {
     CommandApproval Approve(
@@ -29,6 +36,7 @@ public interface ICommandApprover
         string commandText,
         string workingDirectory,
         bool isOwned,
+        bool isNonDestructive,
         CancellationToken cancellationToken);
 
     // The other request the shell makes, and the coarse one: a line it cannot run itself, handed to
@@ -49,6 +57,7 @@ public sealed class AllowAllCommandApprover : ICommandApprover
         string commandText,
         string workingDirectory,
         bool isOwned,
+        bool isNonDestructive,
         CancellationToken cancellationToken) => CommandApproval.Allowed;
 
     public CommandApproval ApproveLine(
@@ -67,6 +76,7 @@ public sealed class DenyingCommandApprover : ICommandApprover
         string commandText,
         string workingDirectory,
         bool isOwned,
+        bool isNonDestructive,
         CancellationToken cancellationToken) => CommandApproval.Deny($"{program}: not approved");
 
     public CommandApproval ApproveLine(

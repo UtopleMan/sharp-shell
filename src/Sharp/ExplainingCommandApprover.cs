@@ -19,10 +19,11 @@ internal sealed class ExplainingCommandApprover(ICommandApprover inner) : IComma
         string commandText,
         string workingDirectory,
         bool isOwned,
+        bool isNonDestructive,
         CancellationToken cancellationToken)
     {
         CommandApproval approval = inner.Approve(
-            program, arguments, commandText, workingDirectory, isOwned, cancellationToken);
+            program, arguments, commandText, workingDirectory, isOwned, isNonDestructive, cancellationToken);
 
         decisions.Add($"  {(isOwned ? "owned" : "native")} {commandText}{Outcome(approval)}");
 
